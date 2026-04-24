@@ -13,9 +13,9 @@ const MAX_FILE_SIZE = 1000000; // 1MB
 // Substitua o schema antigo por este:
 const formSchema = z.object({
   nomeTitular: z.string().min(3, 'O nome deve ter pelo menos 3 letras.'),
+  // Aqui trocamos para 'error' como a Vercel exige
   sexo: z.enum(['Masculino', 'Feminino'], { 
-    required_error: 'Selecione o sexo do titular.',
-    invalid_type_error: 'Selecione o sexo do titular.'
+    error: 'Selecione o sexo do titular.' 
   }),
   email: z.string().email('Digite um email válido.'),
   telefone: z.string().min(10, 'Digite um telefone com DDD.'),
@@ -23,9 +23,9 @@ const formSchema = z.object({
   outra_igreja: z.string().optional(),
   participantes: z.array(z.object({ 
     nome: z.string().min(3, 'Nome obrigatório.'),
+    // Aqui também trocamos para 'error'
     sexo: z.enum(['Masculino', 'Feminino'], { 
-      required_error: 'Selecione o sexo.',
-      invalid_type_error: 'Selecione o sexo.'
+      error: 'Selecione o sexo do acompanhante.' 
     })
   })),
   formaPagamento: z.enum(['pix', 'cartao']),
