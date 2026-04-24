@@ -206,7 +206,7 @@ export default function Formulario() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-bold text-gray-900 mb-1.5">Congregação</label>
+              <label className="block text-sm font-bold text-gray-900 mb-1.5">Igreja</label>
               <select 
                 {...register('igreja')} 
                 className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all"
