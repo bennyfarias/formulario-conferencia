@@ -10,16 +10,23 @@ import { supabase } from '../lib/supabase';
 const MAX_FILE_SIZE = 1000000; // 1MB
 
 // Adicionado 'sexo' na validação do titular e dos participantes
+c// Substitua o schema antigo por este:
 const formSchema = z.object({
   nomeTitular: z.string().min(3, 'O nome deve ter pelo menos 3 letras.'),
-  sexo: z.enum(['Masculino', 'Feminino'], { errorMap: () => ({ message: 'Selecione o sexo do titular.' }) }),
+  sexo: z.enum(['Masculino', 'Feminino'], { 
+    required_error: 'Selecione o sexo do titular.',
+    invalid_type_error: 'Selecione o sexo do titular.'
+  }),
   email: z.string().email('Digite um email válido.'),
   telefone: z.string().min(10, 'Digite um telefone com DDD.'),
   igreja: z.enum(['PIPR', '2IPBV', '3IPBV', '4IPBV', '5IPBV', '6IPBV', 'IPRO', 'Outras']),
   outra_igreja: z.string().optional(),
   participantes: z.array(z.object({ 
     nome: z.string().min(3, 'Nome obrigatório.'),
-    sexo: z.enum(['Masculino', 'Feminino'], { errorMap: () => ({ message: 'Selecione o sexo.' }) })
+    sexo: z.enum(['Masculino', 'Feminino'], { 
+      required_error: 'Selecione o sexo.',
+      invalid_type_error: 'Selecione o sexo.'
+    })
   })),
   formaPagamento: z.enum(['pix', 'cartao']),
   comprovante: z.any().optional(),
