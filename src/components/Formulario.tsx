@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase';
 const MAX_FILE_SIZE = 1000000; // 1MB
 
 // Adicionado 'sexo' na validação do titular e dos participantes
-c// Substitua o schema antigo por este:
+// Substitua o schema antigo por este:
 const formSchema = z.object({
   nomeTitular: z.string().min(3, 'O nome deve ter pelo menos 3 letras.'),
   sexo: z.enum(['Masculino', 'Feminino'], { 
