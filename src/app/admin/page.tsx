@@ -3,8 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
+import * as XLSX from 'xlsx'; // Nova importação do Excel
 import { 
-  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, AlertCircle
+  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail
 } from 'lucide-react';
 
 const LIMITE_MAXIMO = 800;
@@ -13,6 +14,7 @@ export default function AdminDashboard() {
   const [inscricoes, setInscricoes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [analisando, setAnalisando] = useState<any>(null);
+  const [enviandoEmail, setEnviandoEmail] = useState(false);
   const [filtro, setFiltro] = useState('');
   const router = useRouter();
 
@@ -39,45 +41,68 @@ export default function AdminDashboard() {
     setLoading(false);
   }
 
-  const exportarCSV = () => {
-    const headers = ["Nome Titular", "Sexo Titular", "Email", "Telefone", "Igreja", "Outra Igreja", "Forma Pgto", "Valor", "Status", "Participantes (Nome - Sexo)"];
+  // NOVA EXPORTAÇÃO: XLSX (EXCEL VERDADEIRO)
+  const exportarXLSX = () => {
+    const headers = [
+      "Nome Completo", 
+      "Sexo", 
+      "Tipo (Titular/Acompanhante)", 
+      "Responsável Pelo Pagamento", 
+      "Email (Apenas Titular)", 
+      "Telefone (Apenas Titular)", 
+      "Congregação", 
+      "Valor Unitário", 
+      "Status do Pagamento"
+    ];
     
-    const rows = inscricoes.map(i => [
-      i.nome_titular,
-      i.sexo || 'Não informado',
-      i.email,
-      i.telefone,
-      i.igreja,
-      i.outra_igreja || '-',
-      i.forma_pagamento,
-      i.valor_total,
-      i.status_pagamento,
-      i.participantes?.map((p: any) => `${p.nome_completo} (${p.sexo || 'N/A'})`).join('; ') || 'Nenhum'
-    ]);
+    const rows: any[] = [];
+    
+    // Adiciona o cabeçalho como a primeira linha
+    rows.push(headers);
 
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    inscricoes.forEach(i => {
+      // 1. Linha do Titular
+      rows.push([
+        i.nome_titular,
+        i.sexo || 'N/A',
+        "Titular",
+        "-", 
+        i.email,
+        i.telefone,
+        i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
+        70.00, // Número real
+        i.status_pagamento
+      ]);
 
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "lista_inscricoes_fe_reformada.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      // 2. Linhas dos Acompanhantes
+      if (i.participantes && i.participantes.length > 0) {
+        i.participantes.forEach((p: any) => {
+          rows.push([
+            p.nome_completo,
+            p.sexo || 'N/A',
+            "Acompanhante",
+            i.nome_titular, 
+            "-", 
+            "-", 
+            i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
+            70.00, // Número real
+            i.status_pagamento 
+          ]);
+        });
+      }
+    });
+
+    // Gera o arquivo Excel e faz o download
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Inscritos");
+    
+    const dataAtual = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+    XLSX.writeFile(workbook, `Lista_Fe_Reformada_${dataAtual}.xlsx`);
   };
 
-  const confirmarInscricao = async (inscricao: any) => {
-    const { error: dbError } = await supabase
-      .from('inscricoes')
-      .update({ status_pagamento: 'confirmado' })
-      .eq('id', inscricao.id);
-      
-    if (dbError) {
-      alert('Erro no banco: ' + dbError.message);
-      return;
-    }
-
+  const enviarEmailConfirmacao = async (inscricao: any) => {
+    setEnviandoEmail(true);
     try {
       const response = await fetch('/api/enviar-email', {
         method: 'POST',
@@ -89,14 +114,44 @@ export default function AdminDashboard() {
         }),
       });
 
-      if (!response.ok) throw new Error('Erro ao enviar e-mail');
+      if (!response.ok) throw new Error('Falha na API de E-mail');
+      return true;
+    } catch (err) {
+      console.error(err);
+      return false;
+    } finally {
+      setEnviandoEmail(false);
+    }
+  };
 
-      alert('Inscrição aprovada e e-mail de confirmação enviado!');
+  const confirmarInscricao = async (inscricao: any) => {
+    const emailSucesso = await enviarEmailConfirmacao(inscricao);
+
+    if (!emailSucesso) {
+      alert('ERRO CRÍTICO: O e-mail de confirmação falhou. A inscrição NÃO foi confirmada no sistema. Tente novamente.');
+      return;
+    }
+
+    const { error: dbError } = await supabase
+      .from('inscricoes')
+      .update({ status_pagamento: 'confirmado' })
+      .eq('id', inscricao.id);
+      
+    if (dbError) {
+      alert('E-mail enviado, mas erro no banco: ' + dbError.message);
+    } else {
+      alert('Pagamento aprovado e E-mail enviado com sucesso!');
       setAnalisando(null);
       carregarDados();
-      
-    } catch (err: any) {
-      alert('O pagamento foi confirmado, mas houve um erro no envio do e-mail: ' + err.message);
+    }
+  };
+
+  const reenviarEmailApenas = async (inscricao: any) => {
+    const sucesso = await enviarEmailConfirmacao(inscricao);
+    if (sucesso) {
+      alert('E-mail de confirmação reenviado com sucesso!');
+    } else {
+      alert('Erro ao reenviar o e-mail. Verifique o console.');
     }
   };
 
@@ -115,81 +170,85 @@ export default function AdminDashboard() {
         
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
           <div>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Gestão Fé Reformada</h1>
-            <p className="text-gray-500">Administração de inscritos em Boa Vista.</p>
+            <h1 className="text-3xl font-black text-black tracking-tight">Gestão Fé Reformada</h1>
+            <p className="text-gray-600 font-medium">Painel Administrativo da Conferência.</p>
           </div>
           <div className="flex gap-3">
-            <button onClick={exportarCSV} className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
-              <Download size={18} /> Exportar CSV
+            <button onClick={exportarXLSX} className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-green-600 rounded-xl text-sm font-black text-green-700 hover:bg-green-50 transition-colors shadow-sm">
+              <Download size={18} strokeWidth={3} /> Exportar Excel
             </button>
-            <button onClick={handleLogout} className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-bold hover:bg-red-100 transition-all">
-              <LogOut size={18} /> Sair
+            <button onClick={handleLogout} className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-all border-2 border-red-100">
+              <LogOut size={18} strokeWidth={3} /> Sair
             </button>
           </div>
         </div>
 
-        {/* Métricas */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
-              <div className="p-4 bg-green-50 text-green-600 rounded-2xl"><DollarSign size={24}/></div>
+              <div className="p-4 bg-green-100 text-green-700 rounded-2xl"><DollarSign size={28} strokeWidth={3}/></div>
               <div>
-                <p className="text-sm text-gray-500 font-medium">Total Confirmado</p>
-                <p className="text-2xl font-bold text-gray-900">R$ {inscricoes.filter(i => i.status_pagamento === 'confirmado').reduce((acc, curr) => acc + curr.valor_total, 0).toFixed(2)}</p>
+                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Total Confirmado</p>
+                {/* PRETO DESTACADO AQUI */}
+                <p className="text-3xl font-black text-black">R$ {inscricoes.filter(i => i.status_pagamento === 'confirmado').reduce((acc, curr) => acc + curr.valor_total, 0).toFixed(2)}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-            <div className="flex items-center gap-4 mb-3">
-              <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><Users size={24}/></div>
-              <div><p className="text-sm text-gray-500 font-medium">Ocupação</p><p className="text-2xl font-bold">{inscricoes.length} / {LIMITE_MAXIMO}</p></div>
+          <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="p-4 bg-blue-100 text-blue-700 rounded-2xl"><Users size={28} strokeWidth={3}/></div>
+              <div>
+                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação (Vagas)</p>
+                {/* PRETO DESTACADO AQUI */}
+                <p className="text-3xl font-black text-black">{inscricoes.length} / {LIMITE_MAXIMO}</p>
+              </div>
             </div>
-            <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden"><div className="bg-blue-600 h-full" style={{ width: `${(inscricoes.length / LIMITE_MAXIMO) * 100}%` }}></div></div>
+            <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden"><div className="bg-blue-600 h-full" style={{ width: `${(inscricoes.length / LIMITE_MAXIMO) * 100}%` }}></div></div>
           </div>
-          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
-              <div className="p-4 bg-orange-50 text-orange-600 rounded-2xl"><Clock size={24}/></div>
-              <div><p className="text-sm text-gray-500 font-medium">Pendentes</p><p className="text-2xl font-bold">{inscricoes.filter(i => i.status_pagamento === 'pendente').length}</p></div>
+              <div className="p-4 bg-orange-100 text-orange-700 rounded-2xl"><Clock size={28} strokeWidth={3}/></div>
+              <div>
+                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Aguardando Análise</p>
+                {/* PRETO DESTACADO AQUI */}
+                <p className="text-3xl font-black text-black">{inscricoes.filter(i => i.status_pagamento === 'pendente').length}</p>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="p-6 border-b">
-            <input 
-              value={filtro} 
-              onChange={e => setFiltro(e.target.value)} 
-              placeholder="Pesquisar por nome..." 
-              className="w-full md:w-96 p-3 bg-gray-50 border rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
-            />
+        <div className="bg-white rounded-3xl border-2 border-gray-200 shadow-sm overflow-hidden">
+          <div className="p-6 border-b-2 border-gray-200 bg-gray-50">
+            {/* INPUT DE PESQUISA ESCURECIDO */}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={20} />
+              <input 
+                value={filtro} 
+                onChange={e => setFiltro(e.target.value)} 
+                placeholder="Pesquisar por nome do titular..." 
+                className="w-full md:w-96 pl-12 pr-4 py-3 bg-white border-2 border-gray-300 rounded-xl text-base font-bold text-black placeholder-gray-500 focus:outline-none focus:border-black focus:ring-4 focus:ring-gray-200 transition-all" 
+              />
+            </div>
           </div>
           
           <table className="w-full text-left">
-            <thead className="bg-gray-50/50 text-[10px] uppercase font-bold text-gray-400 tracking-widest">
+            <thead className="bg-gray-100 text-[11px] uppercase font-black text-gray-600 tracking-widest border-b-2 border-gray-200">
               <tr>
-                <th className="px-8 py-5">Inscrito</th>
-                <th className="px-8 py-5">Igreja</th>
+                <th className="px-8 py-5">Inscrito (Titular)</th>
+                <th className="px-8 py-5">Congregação</th>
                 <th className="px-8 py-5 text-center">Status</th>
                 <th className="px-8 py-5 text-right">Ação</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y-2 divide-gray-100">
               {filtrados.map(i => (
-                <tr key={i.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-8 py-5 font-bold text-gray-900">
-                    {i.nome_titular} <span className="text-xs text-gray-400 font-normal ml-2">({i.sexo || '?'})</span>
+                <tr key={i.id} className="hover:bg-blue-50 transition-colors">
+                  <td className="px-8 py-5 font-black text-black text-lg">
+                    {i.nome_titular} <span className="text-sm text-gray-500 font-bold ml-2">({i.sexo || '?'})</span>
                   </td>
-                  <td className="px-8 py-5 text-gray-500">{i.igreja === 'Outras' ? i.outra_igreja : i.igreja}</td>
-                  <td className="px-8 py-5 text-center">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${i.status_pagamento === 'confirmado' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                      {i.status_pagamento}
-                    </span>
-                  </td>
-                  <td className="px-8 py-5 text-right">
-                    <button onClick={() => setAnalisando(i)} className="px-4 py-2 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-blue-600 transition-all shadow-sm">
-                      Analisar
-                    </button>
-                  </td>
+                  <td className="px-8 py-5 text-gray-700 font-bold">{i.igreja === 'Outras' ? i.outra_igreja : i.igreja}</td>
+                  <td className="px-8 py-5 text-center"><span className={`px-4 py-2 rounded-lg text-xs font-black uppercase ${i.status_pagamento === 'confirmado' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>{i.status_pagamento}</span></td>
+                  <td className="px-8 py-5 text-right"><button onClick={() => setAnalisando(i)} className="px-6 py-2.5 bg-black text-white text-sm font-black rounded-xl hover:bg-blue-700 transition-all shadow-md">Analisar</button></td>
                 </tr>
               ))}
             </tbody>
@@ -197,13 +256,11 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* MODAL DE ANÁLISE COM SUPORTE A PDF E IMAGEM */}
       {analisando && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white w-full max-w-6xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col md:flex-row h-full max-h-[90vh]">
             
-            {/* Visualizador de Comprovante */}
-            <div className="w-full md:w-3/5 bg-gray-100 flex items-center justify-center p-4 border-r overflow-hidden">
+            <div className="w-full md:w-3/5 bg-gray-100 flex items-center justify-center p-4 border-r-2 overflow-hidden">
               {analisando.comprovante_url ? (
                 analisando.comprovante_url.toLowerCase().endsWith('.pdf') ? (
                   <iframe 
@@ -219,82 +276,89 @@ export default function AdminDashboard() {
                   />
                 )
               ) : (
-                <div className="text-center text-gray-400 p-10">
-                  <Eye size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="font-bold text-lg">Inscrição via Cartão</p>
-                  <p className="text-sm">Não há comprovante digital anexado.</p>
+                <div className="text-center text-gray-500 p-10">
+                  <Eye size={56} className="mx-auto mb-4 opacity-40" />
+                  <p className="font-black text-xl text-black">Inscrição via Cartão</p>
+                  <p className="text-base font-medium mt-2">Não há comprovante digital anexado.</p>
                 </div>
               )}
             </div>
 
-            {/* Painel de Dados */}
             <div className="w-full md:w-2/5 p-10 overflow-y-auto bg-white flex flex-col">
-              <div className="flex justify-between items-center mb-8">
-                <h2 className="text-2xl font-black text-gray-900">Dossiê de Inscrição</h2>
-                <button onClick={() => setAnalisando(null)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-all">
-                  <X size={20} />
-                </button>
+              <div className="flex justify-between items-center mb-8 pb-4 border-b-2">
+                <h2 className="text-3xl font-black text-black">Dossiê de Inscrição</h2>
+                <button onClick={() => setAnalisando(null)} className="p-2 bg-gray-100 rounded-full hover:bg-red-100 hover:text-red-600 transition-all text-gray-600"><X size={24} strokeWidth={3} /></button>
               </div>
 
               <div className="space-y-6 flex-1">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2 p-4 bg-gray-50 rounded-2xl">
-                    <div className="flex justify-between items-start">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Nome Completo</p>
-                      <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full font-bold uppercase">{analisando.sexo || 'N/A'}</span>
+                  <div className="col-span-2 p-4 bg-gray-100 rounded-2xl border border-gray-200">
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Titular Responsável</p>
+                      <span className="text-[10px] bg-white border text-black px-2 py-1 rounded-md font-black uppercase shadow-sm">{analisando.sexo || 'N/A'}</span>
                     </div>
-                    <p className="font-bold text-gray-900">{analisando.nome_titular}</p>
+                    <p className="text-xl font-black text-black">{analisando.nome_titular}</p>
                   </div>
-                  <div className="p-4 bg-gray-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Telefone</p>
-                    <p className="font-bold text-gray-900">{analisando.telefone}</p>
+                  <div className="p-4 bg-gray-100 rounded-2xl border border-gray-200">
+                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Telefone</p>
+                    <p className="font-black text-black">{analisando.telefone}</p>
                   </div>
-                  <div className="p-4 bg-gray-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Email</p>
-                    <p className="font-bold text-gray-900 text-xs truncate">{analisando.email}</p>
+                  <div className="p-4 bg-gray-100 rounded-2xl border border-gray-200">
+                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Email</p>
+                    <p className="font-bold text-black text-sm truncate">{analisando.email}</p>
                   </div>
-                  <div className="col-span-2 p-4 bg-gray-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Congregação</p>
-                    <p className="font-bold text-gray-900">{analisando.igreja === 'Outras' ? analisando.outra_igreja : analisando.igreja}</p>
+                  <div className="col-span-2 p-4 bg-gray-100 rounded-2xl border border-gray-200">
+                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Congregação</p>
+                    <p className="font-black text-black text-lg">{analisando.igreja === 'Outras' ? analisando.outra_igreja : analisando.igreja}</p>
                   </div>
                 </div>
 
-                <div className="p-5 bg-blue-50 rounded-2xl border border-blue-100">
-                  <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">Inscrições Adicionais</p>
+                <div className="p-5 bg-blue-50 rounded-2xl border-2 border-blue-200">
+                  <p className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-3">Acompanhantes</p>
                   {analisando.participantes && analisando.participantes.length > 0 ? (
-                    <ul className="space-y-2">
+                    <ul className="space-y-3">
                       {analisando.participantes.map((p: any, idx: number) => (
-                        <li key={idx} className="text-sm font-bold text-blue-800 flex items-center justify-between">
-                          <span className="flex items-center gap-2"><CheckCircle size={14} /> {p.nome_completo}</span>
-                          <span className="text-[10px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full uppercase">{p.sexo || '?'}</span>
+                        <li key={idx} className="text-base font-black text-blue-900 flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-blue-100">
+                          <span className="flex items-center gap-2"><CheckCircle size={18} className="text-blue-500" /> {p.nome_completo}</span>
+                          <span className="text-[10px] text-blue-800 bg-blue-100 px-2 py-1 rounded-md uppercase tracking-wider">{p.sexo || '?'}</span>
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-sm text-blue-400 italic">Nenhum acompanhante</p>
+                    <p className="text-base text-blue-600 font-bold italic">Inscrição Individual (Sem acompanhantes)</p>
                   )}
                 </div>
 
-                <div className="p-5 bg-gray-900 rounded-2xl flex justify-between items-center text-white mt-auto">
-                  <div>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Valor Total</p>
-                    <p className="text-2xl font-black">R$ {analisando.valor_total.toFixed(2)}</p>
-                  </div>
-                  <div className="text-right uppercase text-[10px] font-black px-3 py-1 bg-white/10 rounded-lg">
-                    {analisando.forma_pagamento}
-                  </div>
+                <div className="p-6 bg-black rounded-2xl flex justify-between items-center text-white mt-auto shadow-xl">
+                  <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor Total</p><p className="text-3xl font-black">R$ {analisando.valor_total.toFixed(2)}</p></div>
+                  <div className="text-right uppercase text-xs font-black px-4 py-2 bg-white text-black rounded-lg">{analisando.forma_pagamento}</div>
                 </div>
               </div>
 
               <div className="mt-8 space-y-3">
-                <button 
-                  onClick={() => confirmarInscricao(analisando)}
-                  disabled={analisando.status_pagamento === 'confirmado'}
-                  className="w-full py-4 bg-green-600 text-white font-bold rounded-2xl shadow-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <CheckCircle size={20} /> Aprovar e Enviar E-mail
-                </button>
-                <button className="w-full py-3 text-gray-400 font-bold text-[10px] uppercase tracking-widest hover:text-red-500">Rejeitar</button>
+                {analisando.status_pagamento === 'pendente' ? (
+                  <button 
+                    onClick={() => confirmarInscricao(analisando)}
+                    disabled={enviandoEmail}
+                    className="w-full py-4 bg-green-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-green-700 hover:shadow-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                  >
+                    {enviandoEmail ? <Loader2 className="animate-spin" size={24} /> : <CheckCircle size={24} strokeWidth={3} />} Aprovar e Disparar E-mail
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => reenviarEmailApenas(analisando)}
+                    disabled={enviandoEmail}
+                    className="w-full py-4 bg-blue-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-blue-700 hover:shadow-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                  >
+                    {enviandoEmail ? <Loader2 className="animate-spin" size={24} /> : <Mail size={24} strokeWidth={3} />} Reenviar Confirmação
+                  </button>
+                )}
+                
+                {analisando.status_pagamento === 'pendente' && (
+                  <button className="w-full py-4 text-gray-500 font-black text-xs uppercase tracking-widest hover:text-red-600 hover:bg-red-50 rounded-2xl transition-colors">
+                    Marcar como Inválido
+                  </button>
+                )}
               </div>
             </div>
           </div>
