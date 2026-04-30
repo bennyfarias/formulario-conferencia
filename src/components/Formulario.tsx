@@ -9,11 +9,9 @@ import { supabase } from '../lib/supabase';
 
 const MAX_FILE_SIZE = 1000000; // 1MB
 
-// Adicionado 'sexo' na validação do titular e dos participantes
-// Substitua o schema antigo por este:
+// Schema atualizado com os termos da LGPD e Imagem
 const formSchema = z.object({
   nomeTitular: z.string().min(3, 'O nome deve ter pelo menos 3 letras.'),
-  // Aqui trocamos para 'error' como a Vercel exige
   sexo: z.enum(['Masculino', 'Feminino'], { 
     error: 'Selecione o sexo do titular.' 
   }),
@@ -23,13 +21,20 @@ const formSchema = z.object({
   outra_igreja: z.string().optional(),
   participantes: z.array(z.object({ 
     nome: z.string().min(3, 'Nome obrigatório.'),
-    // Aqui também trocamos para 'error'
     sexo: z.enum(['Masculino', 'Feminino'], { 
       error: 'Selecione o sexo do acompanhante.' 
     })
   })),
   formaPagamento: z.enum(['pix', 'cartao']),
   comprovante: z.any().optional(),
+  
+  // Novos campos obrigatórios (Checkboxes)
+  aceite_lgpd: z.boolean().refine((val) => val === true, {
+    message: 'Você precisa concordar com os termos da LGPD.',
+  }),
+  aceite_imagem: z.boolean().refine((val) => val === true, {
+    message: 'Você precisa concordar com o uso de imagem.',
+  }),
 }).refine((data) => {
   if (data.igreja === 'Outras' && (!data.outra_igreja || data.outra_igreja.trim() === '')) {
     return false;
@@ -49,7 +54,14 @@ export default function Formulario() {
 
   const { register, control, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: { igreja: 'PIPR', participantes: [], formaPagamento: 'pix' },
+    // Define o estado inicial dos checkboxes como false
+    defaultValues: { 
+      igreja: 'PIPR', 
+      participantes: [], 
+      formaPagamento: 'pix',
+      aceite_lgpd: false,
+      aceite_imagem: false,
+    },
   });
 
   const { fields, append, remove } = useFieldArray({ control, name: 'participantes' });
@@ -70,7 +82,6 @@ export default function Formulario() {
     try {
       let comprovanteUrl = null;
 
-      // 1. Upload do Comprovante (Apenas PIX)
       if (data.formaPagamento === 'pix') {
         const file = data.comprovante?.[0];
         if (!file) {
@@ -97,12 +108,11 @@ export default function Formulario() {
         comprovanteUrl = filePath;
       }
 
-      // 2. Inserir Titular no banco de dados
       const { data: inscricao, error: inscricaoError } = await supabase
         .from('inscricoes')
         .insert([{
           nome_titular: data.nomeTitular,
-          sexo: data.sexo, // <- Novo campo enviado ao Supabase
+          sexo: data.sexo,
           email: data.email,
           telefone: data.telefone,
           igreja: data.igreja,
@@ -117,12 +127,11 @@ export default function Formulario() {
 
       if (inscricaoError) throw inscricaoError;
 
-      // 3. Inserir Participantes no banco de dados
       if (data.participantes.length > 0) {
         const pData = data.participantes.map(p => ({
           inscricao_id: inscricao.id,
           nome_completo: p.nome,
-          sexo: p.sexo // <- Novo campo enviado ao Supabase
+          sexo: p.sexo 
         }));
         const { error: pError } = await supabase.from('participantes').insert(pData);
         if (pError) throw pError;
@@ -171,7 +180,6 @@ export default function Formulario() {
               {errors.nomeTitular && <p className="text-red-500 text-sm mt-1.5 font-medium">{errors.nomeTitular.message}</p>}
             </div>
 
-            {/* NOVO CAMPO: Sexo do Titular */}
             <div>
               <label className="block text-sm font-bold text-gray-900 mb-1.5">Sexo</label>
               <select 
@@ -206,7 +214,7 @@ export default function Formulario() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-bold text-gray-900 mb-1.5">Igreja</label>
+              <label className="block text-sm font-bold text-gray-900 mb-1.5">Congregação</label>
               <select 
                 {...register('igreja')} 
                 className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all"
@@ -237,7 +245,6 @@ export default function Formulario() {
             <h3 className="text-lg font-semibold text-gray-900">2. Inscrições Adicionais</h3>
             <button 
               type="button" 
-              // Garante que o novo participante comece com o campo sexo vazio para forçar validação
               onClick={() => append({ nome: '', sexo: undefined as any })} 
               className="flex items-center gap-2 text-sm text-blue-600 font-bold hover:text-blue-800 transition-colors"
             >
@@ -247,7 +254,7 @@ export default function Formulario() {
           
           {fields.length === 0 && (
             <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
-              Apenas o titular será inscrito. Clique em adicionar se quiser levar mais pessoas.
+              Deseja inscrever mais pessoas? Clique em adicionar e preencha os dados dos demais.
             </p>
           )}
 
@@ -265,7 +272,6 @@ export default function Formulario() {
                   {errors.participantes?.[index]?.nome && <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.participantes[index]?.nome?.message}</p>}
                 </div>
 
-                {/* NOVO CAMPO: Sexo do Participante */}
                 <div className="w-full sm:w-48">
                   <label className="block text-xs font-bold text-gray-600 mb-1 uppercase tracking-wider">Sexo</label>
                   <select 
@@ -292,7 +298,7 @@ export default function Formulario() {
           </div>
         </section>
 
-        {/* BLOCO 3: PAGAMENTO (INALTERADO) */}
+        {/* BLOCO 3: PAGAMENTO */}
         <section className="bg-slate-50 p-6 md:p-8 rounded-2xl border-2 border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">3. Pagamento</h3>
           
@@ -323,7 +329,6 @@ export default function Formulario() {
             </div>
           </div>
 
-          {/* ÁREA CONDICIONAL: PIX (DADOS, QR CODE E UPLOAD) */}
           {formaPagamento === 'pix' && (
             <div className="mt-6 space-y-6 animate-in fade-in duration-300">
               <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row items-center gap-8 shadow-sm">
@@ -359,7 +364,7 @@ export default function Formulario() {
               <div className="border-2 border-dashed border-gray-900 rounded-2xl p-8 text-center bg-white hover:border-blue-500 hover:bg-blue-50 transition-all cursor-pointer">
                 <UploadCloud className="w-12 h-12 text-gray-900 mx-auto mb-3" />
                 <p className="text-sm text-gray-900 font-black mb-1">Passo 2: Anexe o comprovante do PIX</p>
-                <p className="text-xs text-gray-500 mb-4 font-medium">Arquivos aceitos: Foto ou arquivo PDF (Máx 1MB)</p>
+                <p className="text-xs text-gray-500 mb-4 font-medium">PDF oficial do banco ou Print/Captura de Tela (Máx 1MB).</p>
                 <input type="file" id="comp" accept="image/*,application/pdf" className="hidden" {...register('comprovante')} />
                 <label htmlFor="comp" className="inline-block px-6 py-3 bg-gray-900 hover:bg-black text-white font-bold text-sm rounded-xl cursor-pointer transition-colors shadow-sm">
                   Escolher Arquivo
@@ -383,8 +388,45 @@ export default function Formulario() {
           )}
         </section>
 
+        {/* BLOCO 4: TERMOS E CONDIÇÕES */}
+        <section className="space-y-4">
+          <div className="flex items-start gap-3 p-4 bg-gray-50 border-2 border-gray-200 rounded-xl transition-colors hover:bg-gray-100">
+            <div className="flex items-center h-5 mt-0.5">
+              <input
+                id="lgpd"
+                type="checkbox"
+                {...register('aceite_lgpd')}
+                className="w-5 h-5 text-blue-600 bg-white border-2 border-gray-400 rounded focus:ring-blue-500 cursor-pointer"
+              />
+            </div>
+            <div className="text-sm">
+              <label htmlFor="lgpd" className="font-medium text-gray-700 cursor-pointer select-none">
+                Eu concordo com o uso dos meus dados para inscrição no evento, em conformidade com a LGPD (Lei Geral de Proteção de Dados, nº 13.709/2018) e demais utilizações apenas relacionadas ao evento. <span className="text-red-500 font-bold">*</span>
+              </label>
+              {errors.aceite_lgpd && <p className="text-red-500 text-xs mt-1.5 font-bold">{errors.aceite_lgpd.message}</p>}
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-4 bg-gray-50 border-2 border-gray-200 rounded-xl transition-colors hover:bg-gray-100">
+            <div className="flex items-center h-5 mt-0.5">
+              <input
+                id="imagem"
+                type="checkbox"
+                {...register('aceite_imagem')}
+                className="w-5 h-5 text-blue-600 bg-white border-2 border-gray-400 rounded focus:ring-blue-500 cursor-pointer"
+              />
+            </div>
+            <div className="text-sm">
+              <label htmlFor="imagem" className="font-medium text-gray-700 cursor-pointer select-none">
+                Eu concordo com o uso da minha imagem para registros do evento e futuras artes de divulgação de ações similares. <span className="text-red-500 font-bold">*</span>
+              </label>
+              {errors.aceite_imagem && <p className="text-red-500 text-xs mt-1.5 font-bold">{errors.aceite_imagem.message}</p>}
+            </div>
+          </div>
+        </section>
+
         <button type="submit" disabled={isSubmitting} className="w-full py-4 px-6 bg-blue-700 hover:bg-blue-800 text-white text-lg font-black rounded-2xl shadow-lg transition-all disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-3">
-          {isSubmitting ? <><Loader2 className="animate-spin"/> Registrando...</> : 'Finalizar Inscrição (Pré-Reserva)'}
+          {isSubmitting ? <><Loader2 className="animate-spin"/> Registrando...</> : 'Confirmar Inscrição'}
         </button>
       </form>
     </div>
