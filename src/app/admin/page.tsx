@@ -3,12 +3,13 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
-import * as XLSX from 'xlsx'; // Nova importação do Excel
+import * as XLSX from 'xlsx';
 import { 
-  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail
+  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Filter
 } from 'lucide-react';
 
-const LIMITE_MAXIMO = 800;
+// Ajustado para o limite do 1º Lote
+const LIMITE_LOTE_ATUAL = 300; 
 
 export default function AdminDashboard() {
   const [inscricoes, setInscricoes] = useState<any[]>([]);
@@ -16,6 +17,10 @@ export default function AdminDashboard() {
   const [analisando, setAnalisando] = useState<any>(null);
   const [enviandoEmail, setEnviandoEmail] = useState(false);
   const [filtro, setFiltro] = useState('');
+  
+  // Novo estado para o filtro de Pendentes/Confirmados
+  const [statusFiltro, setStatusFiltro] = useState<'todos' | 'pendente' | 'confirmado'>('todos');
+  
   const router = useRouter();
 
   useEffect(() => {
@@ -41,7 +46,6 @@ export default function AdminDashboard() {
     setLoading(false);
   }
 
-  // NOVA EXPORTAÇÃO: XLSX (EXCEL VERDADEIRO)
   const exportarXLSX = () => {
     const headers = [
       "Nome Completo", 
@@ -50,18 +54,16 @@ export default function AdminDashboard() {
       "Responsável Pelo Pagamento", 
       "Email (Apenas Titular)", 
       "Telefone (Apenas Titular)", 
-      "Congregação", 
+      "Igreja", 
       "Valor Unitário", 
       "Status do Pagamento"
     ];
     
     const rows: any[] = [];
-    
-    // Adiciona o cabeçalho como a primeira linha
     rows.push(headers);
 
+    // Exportamos sempre todas as inscrições para garantir que a portaria tenha a lista completa
     inscricoes.forEach(i => {
-      // 1. Linha do Titular
       rows.push([
         i.nome_titular,
         i.sexo || 'N/A',
@@ -70,11 +72,10 @@ export default function AdminDashboard() {
         i.email,
         i.telefone,
         i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
-        70.00, // Número real
+        i.valor_total / (1 + (i.participantes?.length || 0)), // Calcula o valor unitário dinâmico
         i.status_pagamento
       ]);
 
-      // 2. Linhas dos Acompanhantes
       if (i.participantes && i.participantes.length > 0) {
         i.participantes.forEach((p: any) => {
           rows.push([
@@ -85,14 +86,13 @@ export default function AdminDashboard() {
             "-", 
             "-", 
             i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
-            70.00, // Número real
+            i.valor_total / (1 + i.participantes.length), // Calcula o valor unitário dinâmico
             i.status_pagamento 
           ]);
         });
       }
     });
 
-    // Gera o arquivo Excel e faz o download
     const worksheet = XLSX.utils.aoa_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Inscritos");
@@ -160,9 +160,17 @@ export default function AdminDashboard() {
     router.push('/admin/login');
   };
 
-  const filtrados = inscricoes.filter(i => i.nome_titular.toLowerCase().includes(filtro.toLowerCase()));
+  // Lógica combinada de Filtro por Nome + Status
+  const filtrados = inscricoes.filter(i => {
+    const matchBusca = i.nome_titular.toLowerCase().includes(filtro.toLowerCase());
+    const matchStatus = statusFiltro === 'todos' || i.status_pagamento === statusFiltro;
+    return matchBusca && matchStatus;
+  });
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" size={40} /></div>;
+
+  // Calculando o total de pessoas cadastradas (Titulares + Participantes)
+  const totalPessoas = inscricoes.reduce((acc, curr) => acc + 1 + (curr.participantes?.length || 0), 0);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-10">
@@ -189,7 +197,6 @@ export default function AdminDashboard() {
               <div className="p-4 bg-green-100 text-green-700 rounded-2xl"><DollarSign size={28} strokeWidth={3}/></div>
               <div>
                 <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Total Confirmado</p>
-                {/* PRETO DESTACADO AQUI */}
                 <p className="text-3xl font-black text-black">R$ {inscricoes.filter(i => i.status_pagamento === 'confirmado').reduce((acc, curr) => acc + curr.valor_total, 0).toFixed(2)}</p>
               </div>
             </div>
@@ -198,19 +205,17 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-4 mb-4">
               <div className="p-4 bg-blue-100 text-blue-700 rounded-2xl"><Users size={28} strokeWidth={3}/></div>
               <div>
-                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação (Vagas)</p>
-                {/* PRETO DESTACADO AQUI */}
-                <p className="text-3xl font-black text-black">{inscricoes.length} / {LIMITE_MAXIMO}</p>
+                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação (1º Lote)</p>
+                <p className="text-3xl font-black text-black">{totalPessoas} / {LIMITE_LOTE_ATUAL}</p>
               </div>
             </div>
-            <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden"><div className="bg-blue-600 h-full" style={{ width: `${(inscricoes.length / LIMITE_MAXIMO) * 100}%` }}></div></div>
+            <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden"><div className="bg-blue-600 h-full" style={{ width: `${(totalPessoas / LIMITE_LOTE_ATUAL) * 100}%` }}></div></div>
           </div>
           <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
               <div className="p-4 bg-orange-100 text-orange-700 rounded-2xl"><Clock size={28} strokeWidth={3}/></div>
               <div>
                 <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Aguardando Análise</p>
-                {/* PRETO DESTACADO AQUI */}
                 <p className="text-3xl font-black text-black">{inscricoes.filter(i => i.status_pagamento === 'pendente').length}</p>
               </div>
             </div>
@@ -219,23 +224,49 @@ export default function AdminDashboard() {
 
         <div className="bg-white rounded-3xl border-2 border-gray-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b-2 border-gray-200 bg-gray-50">
-            {/* INPUT DE PESQUISA ESCURECIDO */}
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={20} />
-              <input 
-                value={filtro} 
-                onChange={e => setFiltro(e.target.value)} 
-                placeholder="Pesquisar por nome do titular..." 
-                className="w-full md:w-96 pl-12 pr-4 py-3 bg-white border-2 border-gray-300 rounded-xl text-base font-bold text-black placeholder-gray-500 focus:outline-none focus:border-black focus:ring-4 focus:ring-gray-200 transition-all" 
-              />
+            
+            {/* NOVA BARRA COM PESQUISA E FILTROS */}
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="relative w-full md:flex-1">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={20} />
+                <input 
+                  value={filtro} 
+                  onChange={e => setFiltro(e.target.value)} 
+                  placeholder="Pesquisar por nome do titular..." 
+                  className="w-full pl-12 pr-4 py-3 bg-white border-2 border-gray-300 rounded-xl text-base font-bold text-black placeholder-gray-500 focus:outline-none focus:border-black focus:ring-4 focus:ring-gray-200 transition-all" 
+                />
+              </div>
+
+              {/* BOTÕES DE FILTRO DE STATUS */}
+              <div className="flex bg-gray-200 p-1.5 rounded-xl w-full md:w-auto">
+                <button 
+                  onClick={() => setStatusFiltro('todos')} 
+                  className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'todos' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black'}`}
+                >
+                  Todos
+                </button>
+                <button 
+                  onClick={() => setStatusFiltro('pendente')} 
+                  className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'pendente' ? 'bg-orange-100 text-orange-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}
+                >
+                  Pendentes
+                </button>
+                <button 
+                  onClick={() => setStatusFiltro('confirmado')} 
+                  className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'confirmado' ? 'bg-green-100 text-green-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}
+                >
+                  Confirmados
+                </button>
+              </div>
             </div>
+
           </div>
           
           <table className="w-full text-left">
             <thead className="bg-gray-100 text-[11px] uppercase font-black text-gray-600 tracking-widest border-b-2 border-gray-200">
               <tr>
                 <th className="px-8 py-5">Inscrito (Titular)</th>
-                <th className="px-8 py-5">Congregação</th>
+                <th className="px-8 py-5">Igreja</th>
                 <th className="px-8 py-5 text-center">Status</th>
                 <th className="px-8 py-5 text-right">Ação</th>
               </tr>
@@ -251,6 +282,13 @@ export default function AdminDashboard() {
                   <td className="px-8 py-5 text-right"><button onClick={() => setAnalisando(i)} className="px-6 py-2.5 bg-black text-white text-sm font-black rounded-xl hover:bg-blue-700 transition-all shadow-md">Analisar</button></td>
                 </tr>
               ))}
+              {filtrados.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-8 py-12 text-center text-gray-500 font-bold text-lg">
+                    Nenhuma inscrição encontrada neste filtro.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -308,7 +346,7 @@ export default function AdminDashboard() {
                     <p className="font-bold text-black text-sm truncate">{analisando.email}</p>
                   </div>
                   <div className="col-span-2 p-4 bg-gray-100 rounded-2xl border border-gray-200">
-                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Congregação</p>
+                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Igreja</p>
                     <p className="font-black text-black text-lg">{analisando.igreja === 'Outras' ? analisando.outra_igreja : analisando.igreja}</p>
                   </div>
                 </div>
