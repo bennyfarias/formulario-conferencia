@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Plus, Trash2, UploadCloud, CheckCircle2, Loader2, AlertCircle, Copy } from 'lucide-react';
+import { Plus, Trash2, UploadCloud, CheckCircle2, Loader2, AlertCircle, Copy, FileCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const MAX_FILE_SIZE = 1000000; // 1MB
@@ -28,7 +28,6 @@ const formSchema = z.object({
   formaPagamento: z.enum(['pix', 'cartao']),
   comprovante: z.any().optional(),
   
-  // Novos campos obrigatórios (Checkboxes)
   aceite_lgpd: z.boolean().refine((val) => val === true, {
     message: 'Você precisa concordar com os termos da LGPD.',
   }),
@@ -41,7 +40,7 @@ const formSchema = z.object({
   }
   return true;
 }, {
-  message: 'Por favor, informe o nome da sua congregação.',
+  message: 'Por favor, informe o nome da sua igreja.',
   path: ['outra_igreja'],
 });
 
@@ -54,7 +53,6 @@ export default function Formulario() {
 
   const { register, control, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    // Define o estado inicial dos checkboxes como false
     defaultValues: { 
       igreja: 'PIPR', 
       participantes: [], 
@@ -70,6 +68,11 @@ export default function Formulario() {
   const participantesAtuais = watch('participantes') || [];
   const igrejaSelecionada = watch('igreja');
   
+  // Observar o arquivo para dar feedback visual imediato
+  const comprovanteFile = watch('comprovante');
+  const arquivoAnexado = comprovanteFile && comprovanteFile.length > 0 ? comprovanteFile[0] : null;
+  const arquivoExcedeuLimite = arquivoAnexado && arquivoAnexado.size > MAX_FILE_SIZE;
+
   const valorTotal = (1 + participantesAtuais.length) * VALOR_UNITARIO;
 
   const copiarChavePix = () => {
@@ -91,7 +94,7 @@ export default function Formulario() {
         }
 
         if (file.size > MAX_FILE_SIZE) {
-          alert("O arquivo é muito grande. O limite máximo é 1MB.");
+          alert("O arquivo é muito grande. O limite máximo é 1MB. Por favor, anexe um arquivo menor.");
           setIsSubmitting(false);
           return;
         }
@@ -214,7 +217,7 @@ export default function Formulario() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-bold text-gray-900 mb-1.5">Congregação</label>
+              <label className="block text-sm font-bold text-gray-900 mb-1.5">Igreja</label>
               <select 
                 {...register('igreja')} 
                 className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all"
@@ -230,7 +233,7 @@ export default function Formulario() {
                 <label className="block text-sm font-bold text-blue-800 mb-1.5">Qual é a sua igreja?</label>
                 <input 
                   {...register('outra_igreja')} 
-                  placeholder="Digite o nome da sua congregação"
+                  placeholder="Digite o nome da sua igreja"
                   className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" 
                 />
                 {errors.outra_igreja && <p className="text-red-500 text-sm mt-1.5 font-medium">{errors.outra_igreja.message}</p>}
@@ -361,14 +364,48 @@ export default function Formulario() {
                   </div>
                 </div>
               </div>
-              <div className="border-2 border-dashed border-gray-900 rounded-2xl p-8 text-center bg-white hover:border-blue-500 hover:bg-blue-50 transition-all cursor-pointer">
-                <UploadCloud className="w-12 h-12 text-gray-900 mx-auto mb-3" />
-                <p className="text-sm text-gray-900 font-black mb-1">Passo 2: Anexe o comprovante do PIX</p>
-                <p className="text-xs text-gray-500 mb-4 font-medium">PDF oficial do banco ou Print/Captura de Tela (Máx 1MB).</p>
+              
+              {/* NOVA ÁREA DE UPLOAD COM FEEDBACK VISUAL */}
+              <div className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all ${
+                arquivoExcedeuLimite ? 'border-red-500 bg-red-50' 
+                : arquivoAnexado ? 'border-green-500 bg-green-50' 
+                : 'border-gray-900 bg-white hover:border-blue-500 hover:bg-blue-50'
+              }`}>
+                
+                {arquivoAnexado ? (
+                  <>
+                    <FileCheck className={`w-12 h-12 mx-auto mb-3 ${arquivoExcedeuLimite ? 'text-red-500' : 'text-green-500'}`} />
+                    <p className={`text-sm font-black mb-1 ${arquivoExcedeuLimite ? 'text-red-700' : 'text-green-900'}`}>
+                      {arquivoExcedeuLimite ? 'Arquivo Rejeitado' : 'Comprovante Anexado!'}
+                    </p>
+                    <p className={`text-xs mb-4 font-medium truncate max-w-xs mx-auto ${arquivoExcedeuLimite ? 'text-red-600' : 'text-green-700'}`}>
+                      {arquivoAnexado.name}
+                    </p>
+                    
+                    {arquivoExcedeuLimite && (
+                      <div className="flex items-center justify-center gap-2 mb-4 text-red-600 font-bold bg-white p-2 rounded-lg border border-red-200">
+                        <AlertCircle size={18} />
+                        <span className="text-xs">O arquivo passou de 1MB. Envie um menor.</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-12 h-12 text-gray-900 mx-auto mb-3" />
+                    <p className="text-sm text-gray-900 font-black mb-1">Passo 2: Anexe o comprovante do PIX</p>
+                    <p className="text-xs text-gray-500 mb-4 font-medium">PDF oficial do banco ou Print/Captura de Tela (Máx 1MB).</p>
+                  </>
+                )}
+
                 <input type="file" id="comp" accept="image/*,application/pdf" className="hidden" {...register('comprovante')} />
-                <label htmlFor="comp" className="inline-block px-6 py-3 bg-gray-900 hover:bg-black text-white font-bold text-sm rounded-xl cursor-pointer transition-colors shadow-sm">
-                  Escolher Arquivo
+                
+                <label htmlFor="comp" className={`inline-block px-6 py-3 font-bold text-sm rounded-xl cursor-pointer transition-colors shadow-sm ${
+                  arquivoAnexado && !arquivoExcedeuLimite ? 'bg-green-600 hover:bg-green-700 text-white' 
+                  : 'bg-gray-900 hover:bg-black text-white'
+                }`}>
+                  {arquivoAnexado ? 'Trocar de Arquivo' : 'Escolher Arquivo'}
                 </label>
+                
                 {errors.comprovante && <p className="text-red-500 text-sm mt-3 font-bold">{errors.comprovante.message as string}</p>}
               </div>
             </div>
@@ -425,7 +462,7 @@ export default function Formulario() {
           </div>
         </section>
 
-        <button type="submit" disabled={isSubmitting} className="w-full py-4 px-6 bg-blue-700 hover:bg-blue-800 text-white text-lg font-black rounded-2xl shadow-lg transition-all disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-3">
+        <button type="submit" disabled={isSubmitting || arquivoExcedeuLimite} className="w-full py-4 px-6 bg-blue-700 hover:bg-blue-800 text-white text-lg font-black rounded-2xl shadow-lg transition-all disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-3">
           {isSubmitting ? <><Loader2 className="animate-spin"/> Registrando...</> : 'Confirmar Inscrição'}
         </button>
       </form>
