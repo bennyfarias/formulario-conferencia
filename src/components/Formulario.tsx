@@ -68,7 +68,6 @@ export default function Formulario() {
   const participantesAtuais = watch('participantes') || [];
   const igrejaSelecionada = watch('igreja');
   
-  // Observar o arquivo para dar feedback visual imediato
   const comprovanteFile = watch('comprovante');
   const arquivoAnexado = comprovanteFile && comprovanteFile.length > 0 ? comprovanteFile[0] : null;
   const arquivoExcedeuLimite = arquivoAnexado && arquivoAnexado.size > MAX_FILE_SIZE;
@@ -301,14 +300,19 @@ export default function Formulario() {
           </div>
         </section>
 
-        {/* BLOCO 3: PAGAMENTO */}
+        {/* BLOCO 3: PAGAMENTO (Com 1º Lote destacado) */}
         <section className="bg-slate-50 p-6 md:p-8 rounded-2xl border-2 border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">3. Pagamento</h3>
           
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 bg-white p-5 rounded-xl border-2 border-gray-900 shadow-sm">
             <div>
-              <p className="text-sm text-gray-600 font-bold mb-1">Total de Ingressos</p>
-              <p className="text-xl font-black text-gray-900">{1 + participantesAtuais.length}x</p>
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-sm text-gray-600 font-bold">Total de Ingressos</p>
+                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] uppercase font-black rounded-md tracking-widest shadow-sm">1º Lote</span>
+              </div>
+              <p className="text-xl font-black text-gray-900">
+                {1 + participantesAtuais.length}x <span className="text-sm font-medium text-gray-500 ml-1">(R$ 70,00 cada)</span>
+              </p>
             </div>
             <div className="mt-4 md:mt-0 md:text-right">
               <p className="text-sm text-gray-600 font-bold mb-1">Valor Final</p>
@@ -365,7 +369,6 @@ export default function Formulario() {
                 </div>
               </div>
               
-              {/* NOVA ÁREA DE UPLOAD COM FEEDBACK VISUAL */}
               <div className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all ${
                 arquivoExcedeuLimite ? 'border-red-500 bg-red-50' 
                 : arquivoAnexado ? 'border-green-500 bg-green-50' 
