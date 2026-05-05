@@ -9,7 +9,6 @@ import { supabase } from '../lib/supabase';
 
 const MAX_FILE_SIZE = 1000000; // 1MB
 
-// Schema atualizado com os termos da LGPD e Imagem
 const formSchema = z.object({
   nomeTitular: z.string().min(3, 'O nome deve ter pelo menos 3 letras.'),
   sexo: z.enum(['Masculino', 'Feminino'], { 

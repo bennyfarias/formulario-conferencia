@@ -160,7 +160,6 @@ export default function AdminDashboard() {
     router.push('/admin/login');
   };
 
-  // Lógica combinada de Filtro por Nome + Status
   const filtrados = inscricoes.filter(i => {
     const matchBusca = i.nome_titular.toLowerCase().includes(filtro.toLowerCase());
     const matchStatus = statusFiltro === 'todos' || i.status_pagamento === statusFiltro;
@@ -169,7 +168,6 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" size={40} /></div>;
 
-  // Calculando o total de pessoas cadastradas (Titulares + Participantes)
   const totalPessoas = inscricoes.reduce((acc, curr) => acc + 1 + (curr.participantes?.length || 0), 0);
 
   return (
