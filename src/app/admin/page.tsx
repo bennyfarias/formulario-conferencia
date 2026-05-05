@@ -110,7 +110,9 @@ export default function AdminDashboard() {
         body: JSON.stringify({
           emailDestino: inscricao.email,
           nomeTitular: inscricao.nome_titular,
-          valorTotal: inscricao.valor_total
+          valorTotal: inscricao.valor_total,
+          // ✅ AGORA SIM! Enviando a quantidade para a API:
+          quantidadeAcompanhantes: inscricao.participantes?.length || 0 
         }),
       });
 
