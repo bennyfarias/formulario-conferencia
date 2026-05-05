@@ -18,12 +18,9 @@ export default function AdminDashboard() {
   const [filtro, setFiltro] = useState('');
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'pendente' | 'confirmado'>('todos');
   
-  // Estados para o Modo de Edição
   const [modoEdicao, setModoEdicao] = useState(false);
   const [dadosEditados, setDadosEditados] = useState<any>(null);
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
-  
-  // NOVO: Estado para segurar o arquivo novo do comprovante (caso o admin queira trocar)
   const [novoComprovante, setNovoComprovante] = useState<File | null>(null);
   
   const router = useRouter();
@@ -138,26 +135,36 @@ export default function AdminDashboard() {
   };
 
   const excluirInscricao = async (id: string) => {
-    const confirmacao = window.confirm("⚠️ TEM CERTEZA?\n\nIsso vai apagar o titular e todos os acompanhantes permanentemente. Esta ação não pode ser desfeita.");
+    const confirmacao = window.confirm("⚠️ TEM CERTEZA ABSOLUTA?\n\nIsso vai apagar o titular e TODOS os acompanhantes permanentemente. Esta ação não pode ser desfeita.");
     
     if (confirmacao) {
-      setLoading(true);
-      await supabase.from('participantes').delete().eq('inscricao_id', id);
-      const { error } = await supabase.from('inscricoes').delete().eq('id', id);
-      
-      if (error) {
-        alert("Erro ao excluir: " + error.message);
-      } else {
-        alert("Inscrição excluída com sucesso.");
-        fecharModal();
-        carregarDados();
+      try {
+        setLoading(true);
+        // Apaga os participantes
+        await supabase.from('participantes').delete().eq('inscricao_id', id);
+        
+        // Apaga o titular
+        const { data, error } = await supabase.from('inscricoes').delete().eq('id', id).select();
+        
+        if (error) throw error;
+        
+        if (!data || data.length === 0) {
+          alert("⚠️ BLOQUEIO DO SUPABASE!\nVocê precisa ir no SQL Editor do Supabase e rodar o comando para liberar a exclusão (RLS).");
+        } else {
+          alert("Inscrição excluída permanentemente com sucesso!");
+          fecharModal();
+        }
+        await carregarDados();
+      } catch (error: any) {
+        alert("Erro no banco: " + error.message);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
   };
 
   const iniciarEdicao = () => {
-    setNovoComprovante(null); // Reseta qualquer arquivo solto
+    setNovoComprovante(null); 
     setDadosEditados({
       ...analisando,
       participantes: analisando.participantes ? [...analisando.participantes] : []
@@ -170,23 +177,18 @@ export default function AdminDashboard() {
     try {
       let urlComprovanteFinal = dadosEditados.comprovante_url;
 
-      // --- NOVO: LÓGICA DE UPLOAD DE ARQUIVO PELO ADMIN ---
       if (novoComprovante) {
         const fileExt = novoComprovante.name.split('.').pop();
         const fileName = `admin_edit_${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
 
         const { error: uploadError } = await supabase.storage
           .from('comprovantes')
-          .upload(fileName, novoComprovante, {
-            cacheControl: '3600',
-            upsert: false
-          });
+          .upload(fileName, novoComprovante, { cacheControl: '3600', upsert: false });
 
-        if (uploadError) throw new Error("Erro ao fazer upload do novo comprovante: " + uploadError.message);
+        if (uploadError) throw new Error("Erro no upload do comprovante: " + uploadError.message);
         urlComprovanteFinal = fileName;
       }
 
-      // 1. Atualiza dados do titular
       const { error: erroInscricao } = await supabase
         .from('inscricoes')
         .update({
@@ -197,14 +199,13 @@ export default function AdminDashboard() {
           igreja: dadosEditados.igreja,
           outra_igreja: dadosEditados.outra_igreja,
           valor_total: Number(dadosEditados.valor_total),
-          forma_pagamento: dadosEditados.forma_pagamento, // Atualiza PIX/Cartão/Dinheiro
-          comprovante_url: urlComprovanteFinal            // Atualiza a foto se houver
+          forma_pagamento: dadosEditados.forma_pagamento, 
+          comprovante_url: urlComprovanteFinal            
         })
         .eq('id', dadosEditados.id);
 
       if (erroInscricao) throw erroInscricao;
 
-      // 2. Atualiza participantes
       await supabase.from('participantes').delete().eq('inscricao_id', dadosEditados.id);
       
       if (dadosEditados.participantes.length > 0) {
@@ -217,14 +218,13 @@ export default function AdminDashboard() {
         if (erroPart) throw erroPart;
       }
 
-      alert("Dados e Arquivos atualizados com sucesso!");
+      alert("Dados atualizados com sucesso!");
       
-      // Recarrega os dados fresquinhos do banco
       const { data } = await supabase.from('inscricoes').select('*, participantes(*)').eq('id', dadosEditados.id).single();
       setAnalisando(data);
       setModoEdicao(false);
       setNovoComprovante(null);
-      carregarDados(); 
+      await carregarDados(); 
 
     } catch (error: any) {
       alert("Erro ao salvar: " + error.message);
@@ -233,22 +233,24 @@ export default function AdminDashboard() {
     }
   };
 
+  // --- MATEMÁTICA CIRÚRGICA PARA OS BOTÕES ---
   const handleParticipanteEdit = (index: number, campo: string, valor: string) => {
-    const novosParticipantes = [...dadosEditados.participantes];
-    novosParticipantes[index][campo] = valor;
-    setDadosEditados({ ...dadosEditados, participantes: novosParticipantes });
+    const copia = [...dadosEditados.participantes];
+    copia[index][campo] = valor;
+    setDadosEditados({ ...dadosEditados, participantes: copia });
   };
 
-  const adicionarParticipante = () => {
-    setDadosEditados({
-      ...dadosEditados,
-      participantes: [...dadosEditados.participantes, { nome_completo: '', sexo: 'Masculino' }]
-    });
+  const adicionarParticipante = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const copiaNova = [...(dadosEditados.participantes || []), { nome_completo: '', sexo: 'Masculino' }];
+    setDadosEditados({ ...dadosEditados, participantes: copiaNova });
   };
 
-  const removerParticipante = (index: number) => {
-    const novosParticipantes = dadosEditados.participantes.filter((_: any, i: number) => i !== index);
-    setDadosEditados({ ...dadosEditados, participantes: novosParticipantes });
+  const removerParticipante = (e: React.MouseEvent, indexToRemove: number) => {
+    e.preventDefault();
+    const copiaRemovida = [...dadosEditados.participantes];
+    copiaRemovida.splice(indexToRemove, 1); // Corta fora o item exato clicado
+    setDadosEditados({ ...dadosEditados, participantes: copiaRemovida });
   };
 
   const fecharModal = () => {
@@ -282,10 +284,10 @@ export default function AdminDashboard() {
             <p className="text-gray-600 font-medium">Painel Administrativo da Conferência.</p>
           </div>
           <div className="flex gap-3">
-            <button onClick={exportarXLSX} className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-green-600 rounded-xl text-sm font-black text-green-700 hover:bg-green-50 transition-colors shadow-sm">
+            <button type="button" onClick={exportarXLSX} className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-green-600 rounded-xl text-sm font-black text-green-700 hover:bg-green-50 transition-colors shadow-sm">
               <Download size={18} strokeWidth={3} /> Exportar Excel
             </button>
-            <button onClick={handleLogout} className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-all border-2 border-red-100">
+            <button type="button" onClick={handleLogout} className="flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-black hover:bg-red-100 transition-all border-2 border-red-100">
               <LogOut size={18} strokeWidth={3} /> Sair
             </button>
           </div>
@@ -334,9 +336,9 @@ export default function AdminDashboard() {
                 />
               </div>
               <div className="flex bg-gray-200 p-1.5 rounded-xl w-full md:w-auto">
-                <button onClick={() => setStatusFiltro('todos')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'todos' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black'}`}>Todos</button>
-                <button onClick={() => setStatusFiltro('pendente')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'pendente' ? 'bg-orange-100 text-orange-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}>Pendentes</button>
-                <button onClick={() => setStatusFiltro('confirmado')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'confirmado' ? 'bg-green-100 text-green-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}>Confirmados</button>
+                <button type="button" onClick={() => setStatusFiltro('todos')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'todos' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black'}`}>Todos</button>
+                <button type="button" onClick={() => setStatusFiltro('pendente')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'pendente' ? 'bg-orange-100 text-orange-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}>Pendentes</button>
+                <button type="button" onClick={() => setStatusFiltro('confirmado')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'confirmado' ? 'bg-green-100 text-green-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}>Confirmados</button>
               </div>
             </div>
           </div>
@@ -358,7 +360,7 @@ export default function AdminDashboard() {
                   </td>
                   <td className="px-8 py-5 text-gray-700 font-bold">{i.igreja === 'Outras' ? i.outra_igreja : i.igreja}</td>
                   <td className="px-8 py-5 text-center"><span className={`px-4 py-2 rounded-lg text-xs font-black uppercase ${i.status_pagamento === 'confirmado' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>{i.status_pagamento}</span></td>
-                  <td className="px-8 py-5 text-right"><button onClick={() => setAnalisando(i)} className="px-6 py-2.5 bg-black text-white text-sm font-black rounded-xl hover:bg-blue-700 transition-all shadow-md">Analisar</button></td>
+                  <td className="px-8 py-5 text-right"><button type="button" onClick={() => setAnalisando(i)} className="px-6 py-2.5 bg-black text-white text-sm font-black rounded-xl hover:bg-blue-700 transition-all shadow-md">Analisar</button></td>
                 </tr>
               ))}
               {filtrados.length === 0 && (
@@ -374,7 +376,6 @@ export default function AdminDashboard() {
           <div className="bg-white w-full max-w-6xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col md:flex-row h-full max-h-[90vh]">
             
             <div className="w-full md:w-3/5 bg-gray-100 flex items-center justify-center p-4 border-r-2 overflow-hidden relative">
-              {/* Se anexou um arquivo novo na edição, mostra aviso que ele será salvo */}
               {novoComprovante && (
                 <div className="absolute top-4 left-4 right-4 bg-green-100 border-2 border-green-500 text-green-800 font-black p-3 rounded-xl shadow-lg z-10 text-center">
                   ✅ Novo comprovante selecionado e pronto para envio. Salve as alterações!
@@ -400,11 +401,11 @@ export default function AdminDashboard() {
                 </h2>
                 <div className="flex gap-2">
                   {!modoEdicao && (
-                    <button onClick={iniciarEdicao} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-all border border-blue-200" title="Editar Ficha">
+                    <button type="button" onClick={iniciarEdicao} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-all border border-blue-200" title="Editar Ficha">
                       <Edit size={20} strokeWidth={3} />
                     </button>
                   )}
-                  <button onClick={fecharModal} className="p-2 bg-gray-100 rounded-full hover:bg-red-100 hover:text-red-600 transition-all text-gray-600 border border-gray-200">
+                  <button type="button" onClick={fecharModal} className="p-2 bg-gray-100 rounded-full hover:bg-red-100 hover:text-red-600 transition-all text-gray-600 border border-gray-200">
                     <X size={20} strokeWidth={3} />
                   </button>
                 </div>
@@ -417,7 +418,6 @@ export default function AdminDashboard() {
                     <input type="text" value={dadosEditados.nome_titular} onChange={e => setDadosEditados({...dadosEditados, nome_titular: e.target.value})} className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl text-lg font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" />
                   </div>
                   
-                  {/* --- MUDANÇA AQUI: FORMA DE PAGAMENTO E COMPROVANTE --- */}
                   <div className="p-4 bg-orange-50 border-2 border-orange-200 rounded-xl space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -429,7 +429,8 @@ export default function AdminDashboard() {
                         >
                           <option value="PIX">PIX</option>
                           <option value="Cartão de Crédito">Cartão de Crédito</option>
-                          
+                          <option value="Dinheiro">Dinheiro Físico</option>
+                          <option value="Isento">Isento/Cortesia</option>
                         </select>
                       </div>
                       <div>
@@ -449,10 +450,8 @@ export default function AdminDashboard() {
                         }}
                         className="w-full mt-1 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-black file:bg-orange-600 file:text-white hover:file:bg-orange-700 cursor-pointer text-sm font-bold text-gray-700 border-2 border-gray-400 rounded-xl bg-white p-1"
                       />
-                      {dadosEditados.comprovante_url && !novoComprovante && <p className="text-[10px] font-bold text-gray-500 mt-1">*Só selecione se quiser substituir o atual.</p>}
                     </div>
                   </div>
-                  {/* ------------------------------------------------------ */}
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -472,7 +471,7 @@ export default function AdminDashboard() {
                   <div className="mt-6 p-4 border-2 border-blue-300 rounded-xl bg-blue-50">
                     <div className="flex justify-between items-center mb-4">
                       <p className="text-sm font-black text-blue-900 uppercase">Acompanhantes</p>
-                      <button onClick={adicionarParticipante} className="flex items-center gap-1 text-xs bg-blue-700 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 shadow-sm"><Plus size={14}/> Adicionar</button>
+                      <button type="button" onClick={adicionarParticipante} className="flex items-center gap-1 text-xs bg-blue-700 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 shadow-sm"><Plus size={14}/> Adicionar</button>
                     </div>
                     
                     {dadosEditados.participantes.map((p: any, idx: number) => (
@@ -482,15 +481,15 @@ export default function AdminDashboard() {
                           <option value="Masculino">Masc</option>
                           <option value="Feminino">Fem</option>
                         </select>
-                        <button onClick={() => removerParticipante(idx)} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors"><Trash2 size={18}/></button>
+                        <button type="button" onClick={(e) => removerParticipante(e, idx)} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors"><Trash2 size={18}/></button>
                       </div>
                     ))}
                     {dadosEditados.participantes.length === 0 && <p className="text-xs text-blue-700 font-bold italic">Nenhum acompanhante adicionado.</p>}
                   </div>
 
                   <div className="pt-6 flex gap-3">
-                    <button onClick={() => {setModoEdicao(false); setNovoComprovante(null);}} className="flex-1 py-3 bg-gray-300 text-gray-900 font-black rounded-xl hover:bg-gray-400 transition-colors">Cancelar</button>
-                    <button onClick={salvarEdicao} disabled={salvandoEdicao} className="flex-1 py-3 bg-blue-700 text-white font-black rounded-xl hover:bg-blue-800 flex justify-center items-center gap-2 shadow-lg transition-colors">
+                    <button type="button" onClick={() => {setModoEdicao(false); setNovoComprovante(null);}} className="flex-1 py-3 bg-gray-300 text-gray-900 font-black rounded-xl hover:bg-gray-400 transition-colors">Cancelar</button>
+                    <button type="button" onClick={salvarEdicao} disabled={salvandoEdicao} className="flex-1 py-3 bg-blue-700 text-white font-black rounded-xl hover:bg-blue-800 flex justify-center items-center gap-2 shadow-lg transition-colors">
                       {salvandoEdicao ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>} Salvar Alterações
                     </button>
                   </div>
@@ -542,16 +541,17 @@ export default function AdminDashboard() {
 
                   <div className="mt-8 space-y-3">
                     {analisando.status_pagamento === 'pendente' ? (
-                      <button onClick={() => confirmarInscricao(analisando)} disabled={enviandoEmail} className="w-full py-4 bg-green-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-green-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
+                      <button type="button" onClick={() => confirmarInscricao(analisando)} disabled={enviandoEmail} className="w-full py-4 bg-green-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-green-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
                         {enviandoEmail ? <Loader2 className="animate-spin" size={24} /> : <CheckCircle size={24} strokeWidth={3} />} Aprovar e Disparar E-mail
                       </button>
                     ) : (
-                      <button onClick={() => reenviarEmailApenas(analisando)} disabled={enviandoEmail} className="w-full py-4 bg-blue-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
+                      <button type="button" onClick={() => reenviarEmailApenas(analisando)} disabled={enviandoEmail} className="w-full py-4 bg-blue-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
                         {enviandoEmail ? <Loader2 className="animate-spin" size={24} /> : <Mail size={24} strokeWidth={3} />} Reenviar Confirmação
                       </button>
                     )}
                     
                     <button 
+                      type="button"
                       onClick={() => excluirInscricao(analisando.id)} 
                       className="w-full py-4 text-red-500 font-black text-xs uppercase tracking-widest hover:text-red-700 hover:bg-red-50 rounded-2xl transition-colors border border-transparent hover:border-red-100"
                     >
