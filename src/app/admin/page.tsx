@@ -5,10 +5,9 @@ import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { 
-  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Filter
+  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus
 } from 'lucide-react';
 
-// Ajustado para o limite do 1º Lote
 const LIMITE_LOTE_ATUAL = 300; 
 
 export default function AdminDashboard() {
@@ -17,9 +16,12 @@ export default function AdminDashboard() {
   const [analisando, setAnalisando] = useState<any>(null);
   const [enviandoEmail, setEnviandoEmail] = useState(false);
   const [filtro, setFiltro] = useState('');
-  
-  // Novo estado para o filtro de Pendentes/Confirmados
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'pendente' | 'confirmado'>('todos');
+  
+  // Novos estados para o Modo de Edição
+  const [modoEdicao, setModoEdicao] = useState(false);
+  const [dadosEditados, setDadosEditados] = useState<any>(null);
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false);
   
   const router = useRouter();
 
@@ -48,46 +50,26 @@ export default function AdminDashboard() {
 
   const exportarXLSX = () => {
     const headers = [
-      "Nome Completo", 
-      "Sexo", 
-      "Tipo (Titular/Acompanhante)", 
-      "Responsável Pelo Pagamento", 
-      "Email (Apenas Titular)", 
-      "Telefone (Apenas Titular)", 
-      "Igreja", 
-      "Valor Unitário", 
-      "Status do Pagamento"
+      "Nome Completo", "Sexo", "Tipo (Titular/Acompanhante)", "Responsável Pelo Pagamento", 
+      "Email (Apenas Titular)", "Telefone (Apenas Titular)", "Igreja", "Valor Unitário", "Status do Pagamento"
     ];
     
     const rows: any[] = [];
     rows.push(headers);
 
-    // Exportamos sempre todas as inscrições para garantir que a portaria tenha a lista completa
     inscricoes.forEach(i => {
       rows.push([
-        i.nome_titular,
-        i.sexo || 'N/A',
-        "Titular",
-        "-", 
-        i.email,
-        i.telefone,
+        i.nome_titular, i.sexo || 'N/A', "Titular", "-", i.email, i.telefone,
         i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
-        i.valor_total / (1 + (i.participantes?.length || 0)), // Calcula o valor unitário dinâmico
-        i.status_pagamento
+        i.valor_total / (1 + (i.participantes?.length || 0)), i.status_pagamento
       ]);
 
       if (i.participantes && i.participantes.length > 0) {
         i.participantes.forEach((p: any) => {
           rows.push([
-            p.nome_completo,
-            p.sexo || 'N/A',
-            "Acompanhante",
-            i.nome_titular, 
-            "-", 
-            "-", 
+            p.nome_completo, p.sexo || 'N/A', "Acompanhante", i.nome_titular, "-", "-",
             i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
-            i.valor_total / (1 + i.participantes.length), // Calcula o valor unitário dinâmico
-            i.status_pagamento 
+            i.valor_total / (1 + i.participantes.length), i.status_pagamento 
           ]);
         });
       }
@@ -111,7 +93,6 @@ export default function AdminDashboard() {
           emailDestino: inscricao.email,
           nomeTitular: inscricao.nome_titular,
           valorTotal: inscricao.valor_total,
-          // ✅ AGORA SIM! Enviando a quantidade para a API:
           quantidadeAcompanhantes: inscricao.participantes?.length || 0 
         }),
       });
@@ -128,9 +109,8 @@ export default function AdminDashboard() {
 
   const confirmarInscricao = async (inscricao: any) => {
     const emailSucesso = await enviarEmailConfirmacao(inscricao);
-
     if (!emailSucesso) {
-      alert('ERRO CRÍTICO: O e-mail de confirmação falhou. A inscrição NÃO foi confirmada no sistema. Tente novamente.');
+      alert('ERRO CRÍTICO: O e-mail de confirmação falhou. A inscrição NÃO foi confirmada.');
       return;
     }
 
@@ -150,11 +130,109 @@ export default function AdminDashboard() {
 
   const reenviarEmailApenas = async (inscricao: any) => {
     const sucesso = await enviarEmailConfirmacao(inscricao);
-    if (sucesso) {
-      alert('E-mail de confirmação reenviado com sucesso!');
-    } else {
-      alert('Erro ao reenviar o e-mail. Verifique o console.');
+    if (sucesso) alert('E-mail de confirmação reenviado com sucesso!');
+    else alert('Erro ao reenviar o e-mail. Verifique o console.');
+  };
+
+  // --- NOVA FUNÇÃO: EXCLUIR INSCRIÇÃO ---
+  const excluirInscricao = async (id: string) => {
+    const confirmacao = window.confirm("⚠️ TEM CERTEZA?\n\nIsso vai apagar o titular e todos os acompanhantes permanentemente. Esta ação não pode ser desfeita.");
+    
+    if (confirmacao) {
+      setLoading(true);
+      // Apaga os participantes primeiro para evitar erros de restrição (Foreign Key)
+      await supabase.from('participantes').delete().eq('inscricao_id', id);
+      // Depois apaga o titular
+      const { error } = await supabase.from('inscricoes').delete().eq('id', id);
+      
+      if (error) {
+        alert("Erro ao excluir: " + error.message);
+      } else {
+        alert("Inscrição excluída com sucesso.");
+        fecharModal();
+        carregarDados();
+      }
+      setLoading(false);
     }
+  };
+
+  // --- NOVAS FUNÇÕES: MODO DE EDIÇÃO ---
+  const iniciarEdicao = () => {
+    setDadosEditados({
+      ...analisando,
+      participantes: analisando.participantes ? [...analisando.participantes] : []
+    });
+    setModoEdicao(true);
+  };
+
+  const salvarEdicao = async () => {
+    setSalvandoEdicao(true);
+    try {
+      // 1. Atualiza dados do titular
+      const { error: erroInscricao } = await supabase
+        .from('inscricoes')
+        .update({
+          nome_titular: dadosEditados.nome_titular,
+          sexo: dadosEditados.sexo,
+          telefone: dadosEditados.telefone,
+          email: dadosEditados.email,
+          igreja: dadosEditados.igreja,
+          outra_igreja: dadosEditados.outra_igreja,
+          valor_total: Number(dadosEditados.valor_total)
+        })
+        .eq('id', dadosEditados.id);
+
+      if (erroInscricao) throw erroInscricao;
+
+      // 2. Atualiza participantes (A forma mais segura é deletar os antigos e inserir a lista nova editada)
+      await supabase.from('participantes').delete().eq('inscricao_id', dadosEditados.id);
+      
+      if (dadosEditados.participantes.length > 0) {
+        const novosParticipantes = dadosEditados.participantes.map((p: any) => ({
+          inscricao_id: dadosEditados.id,
+          nome_completo: p.nome_completo,
+          sexo: p.sexo || 'Masculino'
+        }));
+        const { error: erroPart } = await supabase.from('participantes').insert(novosParticipantes);
+        if (erroPart) throw erroPart;
+      }
+
+      alert("Dados atualizados com sucesso!");
+      
+      // Recarrega os dados fresquinhos do banco para mostrar no modal
+      const { data } = await supabase.from('inscricoes').select('*, participantes(*)').eq('id', dadosEditados.id).single();
+      setAnalisando(data);
+      setModoEdicao(false);
+      carregarDados(); // Atualiza a tabela de trás também
+
+    } catch (error: any) {
+      alert("Erro ao salvar: " + error.message);
+    } finally {
+      setSalvandoEdicao(false);
+    }
+  };
+
+  const handleParticipanteEdit = (index: number, campo: string, valor: string) => {
+    const novosParticipantes = [...dadosEditados.participantes];
+    novosParticipantes[index][campo] = valor;
+    setDadosEditados({ ...dadosEditados, participantes: novosParticipantes });
+  };
+
+  const adicionarParticipante = () => {
+    setDadosEditados({
+      ...dadosEditados,
+      participantes: [...dadosEditados.participantes, { nome_completo: '', sexo: 'Masculino' }]
+    });
+  };
+
+  const removerParticipante = (index: number) => {
+    const novosParticipantes = dadosEditados.participantes.filter((_: any, i: number) => i !== index);
+    setDadosEditados({ ...dadosEditados, participantes: novosParticipantes });
+  };
+
+  const fecharModal = () => {
+    setAnalisando(null);
+    setModoEdicao(false);
   };
 
   const handleLogout = async () => {
@@ -191,6 +269,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* ... (Cards de Estatísticas mantidos iguaizinhos) ... */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
@@ -224,42 +303,21 @@ export default function AdminDashboard() {
 
         <div className="bg-white rounded-3xl border-2 border-gray-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b-2 border-gray-200 bg-gray-50">
-            
-            {/* NOVA BARRA COM PESQUISA E FILTROS */}
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
               <div className="relative w-full md:flex-1">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={20} />
                 <input 
-                  value={filtro} 
-                  onChange={e => setFiltro(e.target.value)} 
+                  value={filtro} onChange={e => setFiltro(e.target.value)} 
                   placeholder="Pesquisar por nome do titular..." 
                   className="w-full pl-12 pr-4 py-3 bg-white border-2 border-gray-300 rounded-xl text-base font-bold text-black placeholder-gray-500 focus:outline-none focus:border-black focus:ring-4 focus:ring-gray-200 transition-all" 
                 />
               </div>
-
-              {/* BOTÕES DE FILTRO DE STATUS */}
               <div className="flex bg-gray-200 p-1.5 rounded-xl w-full md:w-auto">
-                <button 
-                  onClick={() => setStatusFiltro('todos')} 
-                  className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'todos' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black'}`}
-                >
-                  Todos
-                </button>
-                <button 
-                  onClick={() => setStatusFiltro('pendente')} 
-                  className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'pendente' ? 'bg-orange-100 text-orange-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}
-                >
-                  Pendentes
-                </button>
-                <button 
-                  onClick={() => setStatusFiltro('confirmado')} 
-                  className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'confirmado' ? 'bg-green-100 text-green-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}
-                >
-                  Confirmados
-                </button>
+                <button onClick={() => setStatusFiltro('todos')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'todos' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black'}`}>Todos</button>
+                <button onClick={() => setStatusFiltro('pendente')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'pendente' ? 'bg-orange-100 text-orange-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}>Pendentes</button>
+                <button onClick={() => setStatusFiltro('confirmado')} className={`flex-1 md:flex-none px-6 py-2.5 text-sm font-black rounded-lg transition-all ${statusFiltro === 'confirmado' ? 'bg-green-100 text-green-800 shadow-sm' : 'text-gray-500 hover:text-black'}`}>Confirmados</button>
               </div>
             </div>
-
           </div>
           
           <table className="w-full text-left">
@@ -283,17 +341,14 @@ export default function AdminDashboard() {
                 </tr>
               ))}
               {filtrados.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-8 py-12 text-center text-gray-500 font-bold text-lg">
-                    Nenhuma inscrição encontrada neste filtro.
-                  </td>
-                </tr>
+                <tr><td colSpan={4} className="px-8 py-12 text-center text-gray-500 font-bold text-lg">Nenhuma inscrição encontrada.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
 
+      {/* MODAL DE DOSSIÊ E EDIÇÃO */}
       {analisando && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white w-full max-w-6xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col md:flex-row h-full max-h-[90vh]">
@@ -301,103 +356,190 @@ export default function AdminDashboard() {
             <div className="w-full md:w-3/5 bg-gray-100 flex items-center justify-center p-4 border-r-2 overflow-hidden">
               {analisando.comprovante_url ? (
                 analisando.comprovante_url.toLowerCase().endsWith('.pdf') ? (
-                  <iframe 
-                    src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/comprovantes/${analisando.comprovante_url}`} 
-                    className="w-full h-full rounded-2xl shadow-lg border-none bg-white"
-                    title="Visualizador de PDF"
-                  />
+                  <iframe src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/comprovantes/${analisando.comprovante_url}`} className="w-full h-full rounded-2xl shadow-lg border-none bg-white" title="PDF" />
                 ) : (
-                  <img 
-                    src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/comprovantes/${analisando.comprovante_url}`} 
-                    className="max-h-full max-w-full object-contain rounded-2xl shadow-lg"
-                    alt="Comprovante de Pagamento"
-                  />
+                  <img src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/comprovantes/${analisando.comprovante_url}`} className="max-h-full max-w-full object-contain rounded-2xl shadow-lg" alt="Comprovante" />
                 )
               ) : (
-                <div className="text-center text-gray-500 p-10">
-                  <Eye size={56} className="mx-auto mb-4 opacity-40" />
-                  <p className="font-black text-xl text-black">Inscrição via Cartão</p>
-                  <p className="text-base font-medium mt-2">Não há comprovante digital anexado.</p>
-                </div>
+                <div className="text-center text-gray-500 p-10"><Eye size={56} className="mx-auto mb-4 opacity-40" /><p className="font-black text-xl text-black">Inscrição via Cartão</p></div>
               )}
             </div>
 
             <div className="w-full md:w-2/5 p-10 overflow-y-auto bg-white flex flex-col">
+              
               <div className="flex justify-between items-center mb-8 pb-4 border-b-2">
-                <h2 className="text-3xl font-black text-black">Dossiê de Inscrição</h2>
-                <button onClick={() => setAnalisando(null)} className="p-2 bg-gray-100 rounded-full hover:bg-red-100 hover:text-red-600 transition-all text-gray-600"><X size={24} strokeWidth={3} /></button>
-              </div>
-
-              <div className="space-y-6 flex-1">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2 p-4 bg-gray-100 rounded-2xl border border-gray-200">
-                    <div className="flex justify-between items-start mb-2">
-                      <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Titular Responsável</p>
-                      <span className="text-[10px] bg-white border text-black px-2 py-1 rounded-md font-black uppercase shadow-sm">{analisando.sexo || 'N/A'}</span>
-                    </div>
-                    <p className="text-xl font-black text-black">{analisando.nome_titular}</p>
-                  </div>
-                  <div className="p-4 bg-gray-100 rounded-2xl border border-gray-200">
-                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Telefone</p>
-                    <p className="font-black text-black">{analisando.telefone}</p>
-                  </div>
-                  <div className="p-4 bg-gray-100 rounded-2xl border border-gray-200">
-                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Email</p>
-                    <p className="font-bold text-black text-sm truncate">{analisando.email}</p>
-                  </div>
-                  <div className="col-span-2 p-4 bg-gray-100 rounded-2xl border border-gray-200">
-                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Igreja</p>
-                    <p className="font-black text-black text-lg">{analisando.igreja === 'Outras' ? analisando.outra_igreja : analisando.igreja}</p>
-                  </div>
-                </div>
-
-                <div className="p-5 bg-blue-50 rounded-2xl border-2 border-blue-200">
-                  <p className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-3">Acompanhantes</p>
-                  {analisando.participantes && analisando.participantes.length > 0 ? (
-                    <ul className="space-y-3">
-                      {analisando.participantes.map((p: any, idx: number) => (
-                        <li key={idx} className="text-base font-black text-blue-900 flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-blue-100">
-                          <span className="flex items-center gap-2"><CheckCircle size={18} className="text-blue-500" /> {p.nome_completo}</span>
-                          <span className="text-[10px] text-blue-800 bg-blue-100 px-2 py-1 rounded-md uppercase tracking-wider">{p.sexo || '?'}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-base text-blue-600 font-bold italic">Inscrição Individual (Sem acompanhantes)</p>
+                <h2 className="text-3xl font-black text-black">
+                  {modoEdicao ? 'Editando Dados' : 'Dossiê de Inscrição'}
+                </h2>
+                <div className="flex gap-2">
+                  {!modoEdicao && (
+                    <button onClick={iniciarEdicao} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-all" title="Editar Ficha">
+                      <Edit size={20} strokeWidth={3} />
+                    </button>
                   )}
-                </div>
-
-                <div className="p-6 bg-black rounded-2xl flex justify-between items-center text-white mt-auto shadow-xl">
-                  <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor Total</p><p className="text-3xl font-black">R$ {analisando.valor_total.toFixed(2)}</p></div>
-                  <div className="text-right uppercase text-xs font-black px-4 py-2 bg-white text-black rounded-lg">{analisando.forma_pagamento}</div>
+                  <button onClick={fecharModal} className="p-2 bg-gray-100 rounded-full hover:bg-red-100 hover:text-red-600 transition-all text-gray-600">
+                    <X size={20} strokeWidth={3} />
+                  </button>
                 </div>
               </div>
 
-              <div className="mt-8 space-y-3">
-                {analisando.status_pagamento === 'pendente' ? (
-                  <button 
-                    onClick={() => confirmarInscricao(analisando)}
-                    disabled={enviandoEmail}
-                    className="w-full py-4 bg-green-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-green-700 hover:shadow-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-                  >
-                    {enviandoEmail ? <Loader2 className="animate-spin" size={24} /> : <CheckCircle size={24} strokeWidth={3} />} Aprovar e Disparar E-mail
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => reenviarEmailApenas(analisando)}
-                    disabled={enviandoEmail}
-                    className="w-full py-4 bg-blue-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-blue-700 hover:shadow-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-                  >
-                    {enviandoEmail ? <Loader2 className="animate-spin" size={24} /> : <Mail size={24} strokeWidth={3} />} Reenviar Confirmação
-                  </button>
-                )}
-                
-                {analisando.status_pagamento === 'pendente' && (
-                  <button className="w-full py-4 text-gray-500 font-black text-xs uppercase tracking-widest hover:text-red-600 hover:bg-red-50 rounded-2xl transition-colors">
-                    Marcar como Inválido
-                  </button>
-                )}
-              </div>
+              {/* CONDIÇÃO: SE ESTIVER NO MODO DE EDIÇÃO MOSTRA O FORMULÁRIO */}
+              {modoEdicao ? (
+                <div className="space-y-4 flex-1">
+                  <div>
+                    <label className="text-xs font-black text-gray-500 uppercase">Nome do Titular</label>
+                    <input 
+                      type="text" 
+                      value={dadosEditados.nome_titular} 
+                      onChange={e => setDadosEditados({...dadosEditados, nome_titular: e.target.value})} 
+                      // Modificado aqui: text-black, bg-gray-50, border-gray-400
+                      className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl text-lg font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" 
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-black text-gray-500 uppercase">Telefone</label>
+                      <input 
+                        type="text" 
+                        value={dadosEditados.telefone} 
+                        onChange={e => setDadosEditados({...dadosEditados, telefone: e.target.value})} 
+                        className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" 
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-black text-gray-500 uppercase">Valor Total (R$)</label>
+                      <input 
+                        type="number" 
+                        value={dadosEditados.valor_total} 
+                        onChange={e => setDadosEditados({...dadosEditados, valor_total: e.target.value})} 
+                        // Modificado aqui: texto verde escuro bem forte
+                        className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-black text-green-800 focus:border-green-600 focus:outline-none focus:ring-4 focus:ring-green-100 transition-all" 
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-black text-gray-500 uppercase">E-mail</label>
+                    <input 
+                      type="email" 
+                      value={dadosEditados.email} 
+                      onChange={e => setDadosEditados({...dadosEditados, email: e.target.value})} 
+                      className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-bold text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-black text-gray-500 uppercase">Igreja</label>
+                    <input 
+                      type="text" 
+                      value={dadosEditados.igreja} 
+                      onChange={e => setDadosEditados({...dadosEditados, igreja: e.target.value})} 
+                      className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" 
+                    />
+                  </div>
+
+                  <div className="mt-6 p-4 border-2 border-blue-300 rounded-xl bg-blue-50">
+                    <div className="flex justify-between items-center mb-4">
+                      <p className="text-sm font-black text-blue-900 uppercase">Acompanhantes</p>
+                      <button onClick={adicionarParticipante} className="flex items-center gap-1 text-xs bg-blue-700 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 shadow-sm"><Plus size={14}/> Adicionar</button>
+                    </div>
+                    
+                    {dadosEditados.participantes.map((p: any, idx: number) => (
+                      <div key={idx} className="flex gap-2 mb-3 bg-white p-2 rounded-xl border-2 border-gray-300 shadow-sm">
+                        <input 
+                          type="text" 
+                          placeholder="Nome Completo" 
+                          value={p.nome_completo} 
+                          onChange={e => handleParticipanteEdit(idx, 'nome_completo', e.target.value)} 
+                          // Modificado aqui: texto forte no campo de acompanhantes
+                          className="flex-1 p-2 bg-gray-50 border border-gray-400 rounded-lg text-base font-black text-black focus:border-blue-600 focus:outline-none" 
+                        />
+                        <select 
+                          value={p.sexo} 
+                          onChange={e => handleParticipanteEdit(idx, 'sexo', e.target.value)} 
+                          className="p-2 bg-gray-50 border border-gray-400 rounded-lg text-sm font-bold text-black focus:border-blue-600 focus:outline-none"
+                        >
+                          <option value="Masculino">Masc</option>
+                          <option value="Feminino">Fem</option>
+                        </select>
+                        <button onClick={() => removerParticipante(idx)} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors"><Trash2 size={18}/></button>
+                      </div>
+                    ))}
+                    {dadosEditados.participantes.length === 0 && <p className="text-xs text-blue-700 font-bold italic">Nenhum acompanhante adicionado.</p>}
+                  </div>
+
+                  <div className="pt-6 flex gap-3">
+                    <button onClick={() => setModoEdicao(false)} className="flex-1 py-3 bg-gray-300 text-gray-900 font-black rounded-xl hover:bg-gray-400 transition-colors">Cancelar</button>
+                    <button onClick={salvarEdicao} disabled={salvandoEdicao} className="flex-1 py-3 bg-blue-700 text-white font-black rounded-xl hover:bg-blue-800 flex justify-center items-center gap-2 shadow-lg transition-colors">
+                      {salvandoEdicao ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>} Salvar Alterações
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* CONDIÇÃO: SE NÃO ESTIVER EDITANDO, MOSTRA O DOSSIÊ NORMAL (Sua versão original intacta) */
+                <div className="space-y-6 flex-1">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2 p-4 bg-gray-100 rounded-2xl border border-gray-200">
+                      <div className="flex justify-between items-start mb-2">
+                        <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Titular Responsável</p>
+                        <span className="text-[10px] bg-white border text-black px-2 py-1 rounded-md font-black uppercase shadow-sm">{analisando.sexo || 'N/A'}</span>
+                      </div>
+                      <p className="text-xl font-black text-black">{analisando.nome_titular}</p>
+                    </div>
+                    <div className="p-4 bg-gray-100 rounded-2xl border border-gray-200">
+                      <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Telefone</p>
+                      <p className="font-black text-black">{analisando.telefone}</p>
+                    </div>
+                    <div className="p-4 bg-gray-100 rounded-2xl border border-gray-200">
+                      <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Email</p>
+                      <p className="font-bold text-black text-sm truncate">{analisando.email}</p>
+                    </div>
+                    <div className="col-span-2 p-4 bg-gray-100 rounded-2xl border border-gray-200">
+                      <p className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-2">Igreja</p>
+                      <p className="font-black text-black text-lg">{analisando.igreja === 'Outras' ? analisando.outra_igreja : analisando.igreja}</p>
+                    </div>
+                  </div>
+
+                  <div className="p-5 bg-blue-50 rounded-2xl border-2 border-blue-200">
+                    <p className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-3">Acompanhantes</p>
+                    {analisando.participantes && analisando.participantes.length > 0 ? (
+                      <ul className="space-y-3">
+                        {analisando.participantes.map((p: any, idx: number) => (
+                          <li key={idx} className="text-base font-black text-blue-900 flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-blue-100">
+                            <span className="flex items-center gap-2"><CheckCircle size={18} className="text-blue-500" /> {p.nome_completo}</span>
+                            <span className="text-[10px] text-blue-800 bg-blue-100 px-2 py-1 rounded-md uppercase tracking-wider">{p.sexo || '?'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-base text-blue-600 font-bold italic">Inscrição Individual (Sem acompanhantes)</p>
+                    )}
+                  </div>
+
+                  <div className="p-6 bg-black rounded-2xl flex justify-between items-center text-white mt-auto shadow-xl">
+                    <div><p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor Total</p><p className="text-3xl font-black">R$ {analisando.valor_total.toFixed(2)}</p></div>
+                    <div className="text-right uppercase text-xs font-black px-4 py-2 bg-white text-black rounded-lg">{analisando.forma_pagamento}</div>
+                  </div>
+
+                  <div className="mt-8 space-y-3">
+                    {analisando.status_pagamento === 'pendente' ? (
+                      <button onClick={() => confirmarInscricao(analisando)} disabled={enviandoEmail} className="w-full py-4 bg-green-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-green-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
+                        {enviandoEmail ? <Loader2 className="animate-spin" size={24} /> : <CheckCircle size={24} strokeWidth={3} />} Aprovar e Disparar E-mail
+                      </button>
+                    ) : (
+                      <button onClick={() => reenviarEmailApenas(analisando)} disabled={enviandoEmail} className="w-full py-4 bg-blue-600 text-white font-black text-lg rounded-2xl shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
+                        {enviandoEmail ? <Loader2 className="animate-spin" size={24} /> : <Mail size={24} strokeWidth={3} />} Reenviar Confirmação
+                      </button>
+                    )}
+                    
+                    {/* BOTÃO DE EXCLUSÃO ATUALIZADO (Aparece para pendentes ou já confirmados) */}
+                    <button 
+                      onClick={() => excluirInscricao(analisando.id)} 
+                      className="w-full py-4 text-red-500 font-black text-xs uppercase tracking-widest hover:text-red-700 hover:bg-red-50 rounded-2xl transition-colors border border-transparent hover:border-red-100"
+                    >
+                      Excluir Inscrição Permanentemente
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
