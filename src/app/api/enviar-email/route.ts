@@ -34,8 +34,8 @@ export async function POST(request: Request) {
       : `Sua inscrição para a Conferência da Fé Reformada está oficialmente confirmada. Recebemos seu pagamento de <strong>R$ ${valorTotal}</strong>.`;
 
     const paragrafoDespedida = isPlural
-      ? "Contamos a sua presença de vocês!"
-      : "Estamos com sua presença!";
+      ? "Contamos com a presença de vocês!"
+      : "Contamos com sua presença!";
 
     const mailOptions = {
       from: `"Conferência da Fé Reformada" <${process.env.GMAIL_USER}>`,
