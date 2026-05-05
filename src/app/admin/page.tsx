@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { 
-  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus
+  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus, Upload
 } from 'lucide-react';
 
 const LIMITE_LOTE_ATUAL = 300; 
@@ -18,10 +18,13 @@ export default function AdminDashboard() {
   const [filtro, setFiltro] = useState('');
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'pendente' | 'confirmado'>('todos');
   
-  // Novos estados para o Modo de Edição
+  // Estados para o Modo de Edição
   const [modoEdicao, setModoEdicao] = useState(false);
   const [dadosEditados, setDadosEditados] = useState<any>(null);
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
+  
+  // NOVO: Estado para segurar o arquivo novo do comprovante (caso o admin queira trocar)
+  const [novoComprovante, setNovoComprovante] = useState<File | null>(null);
   
   const router = useRouter();
 
@@ -51,7 +54,7 @@ export default function AdminDashboard() {
   const exportarXLSX = () => {
     const headers = [
       "Nome Completo", "Sexo", "Tipo (Titular/Acompanhante)", "Responsável Pelo Pagamento", 
-      "Email (Apenas Titular)", "Telefone (Apenas Titular)", "Igreja", "Valor Unitário", "Status do Pagamento"
+      "Email (Apenas Titular)", "Telefone (Apenas Titular)", "Igreja", "Valor Unitário", "Status do Pagamento", "Forma de Pagamento"
     ];
     
     const rows: any[] = [];
@@ -61,7 +64,7 @@ export default function AdminDashboard() {
       rows.push([
         i.nome_titular, i.sexo || 'N/A', "Titular", "-", i.email, i.telefone,
         i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
-        i.valor_total / (1 + (i.participantes?.length || 0)), i.status_pagamento
+        i.valor_total / (1 + (i.participantes?.length || 0)), i.status_pagamento, i.forma_pagamento
       ]);
 
       if (i.participantes && i.participantes.length > 0) {
@@ -69,7 +72,7 @@ export default function AdminDashboard() {
           rows.push([
             p.nome_completo, p.sexo || 'N/A', "Acompanhante", i.nome_titular, "-", "-",
             i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
-            i.valor_total / (1 + i.participantes.length), i.status_pagamento 
+            i.valor_total / (1 + i.participantes.length), i.status_pagamento, i.forma_pagamento
           ]);
         });
       }
@@ -134,15 +137,12 @@ export default function AdminDashboard() {
     else alert('Erro ao reenviar o e-mail. Verifique o console.');
   };
 
-  // --- NOVA FUNÇÃO: EXCLUIR INSCRIÇÃO ---
   const excluirInscricao = async (id: string) => {
     const confirmacao = window.confirm("⚠️ TEM CERTEZA?\n\nIsso vai apagar o titular e todos os acompanhantes permanentemente. Esta ação não pode ser desfeita.");
     
     if (confirmacao) {
       setLoading(true);
-      // Apaga os participantes primeiro para evitar erros de restrição (Foreign Key)
       await supabase.from('participantes').delete().eq('inscricao_id', id);
-      // Depois apaga o titular
       const { error } = await supabase.from('inscricoes').delete().eq('id', id);
       
       if (error) {
@@ -156,8 +156,8 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- NOVAS FUNÇÕES: MODO DE EDIÇÃO ---
   const iniciarEdicao = () => {
+    setNovoComprovante(null); // Reseta qualquer arquivo solto
     setDadosEditados({
       ...analisando,
       participantes: analisando.participantes ? [...analisando.participantes] : []
@@ -168,6 +168,24 @@ export default function AdminDashboard() {
   const salvarEdicao = async () => {
     setSalvandoEdicao(true);
     try {
+      let urlComprovanteFinal = dadosEditados.comprovante_url;
+
+      // --- NOVO: LÓGICA DE UPLOAD DE ARQUIVO PELO ADMIN ---
+      if (novoComprovante) {
+        const fileExt = novoComprovante.name.split('.').pop();
+        const fileName = `admin_edit_${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('comprovantes')
+          .upload(fileName, novoComprovante, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) throw new Error("Erro ao fazer upload do novo comprovante: " + uploadError.message);
+        urlComprovanteFinal = fileName;
+      }
+
       // 1. Atualiza dados do titular
       const { error: erroInscricao } = await supabase
         .from('inscricoes')
@@ -178,13 +196,15 @@ export default function AdminDashboard() {
           email: dadosEditados.email,
           igreja: dadosEditados.igreja,
           outra_igreja: dadosEditados.outra_igreja,
-          valor_total: Number(dadosEditados.valor_total)
+          valor_total: Number(dadosEditados.valor_total),
+          forma_pagamento: dadosEditados.forma_pagamento, // Atualiza PIX/Cartão/Dinheiro
+          comprovante_url: urlComprovanteFinal            // Atualiza a foto se houver
         })
         .eq('id', dadosEditados.id);
 
       if (erroInscricao) throw erroInscricao;
 
-      // 2. Atualiza participantes (A forma mais segura é deletar os antigos e inserir a lista nova editada)
+      // 2. Atualiza participantes
       await supabase.from('participantes').delete().eq('inscricao_id', dadosEditados.id);
       
       if (dadosEditados.participantes.length > 0) {
@@ -197,13 +217,14 @@ export default function AdminDashboard() {
         if (erroPart) throw erroPart;
       }
 
-      alert("Dados atualizados com sucesso!");
+      alert("Dados e Arquivos atualizados com sucesso!");
       
-      // Recarrega os dados fresquinhos do banco para mostrar no modal
+      // Recarrega os dados fresquinhos do banco
       const { data } = await supabase.from('inscricoes').select('*, participantes(*)').eq('id', dadosEditados.id).single();
       setAnalisando(data);
       setModoEdicao(false);
-      carregarDados(); // Atualiza a tabela de trás também
+      setNovoComprovante(null);
+      carregarDados(); 
 
     } catch (error: any) {
       alert("Erro ao salvar: " + error.message);
@@ -233,6 +254,7 @@ export default function AdminDashboard() {
   const fecharModal = () => {
     setAnalisando(null);
     setModoEdicao(false);
+    setNovoComprovante(null);
   };
 
   const handleLogout = async () => {
@@ -269,7 +291,6 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* ... (Cards de Estatísticas mantidos iguaizinhos) ... */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
@@ -348,20 +369,26 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* MODAL DE DOSSIÊ E EDIÇÃO */}
       {analisando && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white w-full max-w-6xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col md:flex-row h-full max-h-[90vh]">
             
-            <div className="w-full md:w-3/5 bg-gray-100 flex items-center justify-center p-4 border-r-2 overflow-hidden">
+            <div className="w-full md:w-3/5 bg-gray-100 flex items-center justify-center p-4 border-r-2 overflow-hidden relative">
+              {/* Se anexou um arquivo novo na edição, mostra aviso que ele será salvo */}
+              {novoComprovante && (
+                <div className="absolute top-4 left-4 right-4 bg-green-100 border-2 border-green-500 text-green-800 font-black p-3 rounded-xl shadow-lg z-10 text-center">
+                  ✅ Novo comprovante selecionado e pronto para envio. Salve as alterações!
+                </div>
+              )}
+              
               {analisando.comprovante_url ? (
                 analisando.comprovante_url.toLowerCase().endsWith('.pdf') ? (
-                  <iframe src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/comprovantes/${analisando.comprovante_url}`} className="w-full h-full rounded-2xl shadow-lg border-none bg-white" title="PDF" />
+                  <iframe src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/comprovantes/${analisando.comprovante_url}`} className={`w-full h-full rounded-2xl shadow-lg border-none bg-white ${novoComprovante ? 'opacity-30' : ''}`} title="PDF" />
                 ) : (
-                  <img src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/comprovantes/${analisando.comprovante_url}`} className="max-h-full max-w-full object-contain rounded-2xl shadow-lg" alt="Comprovante" />
+                  <img src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/comprovantes/${analisando.comprovante_url}`} className={`max-h-full max-w-full object-contain rounded-2xl shadow-lg ${novoComprovante ? 'opacity-30' : ''}`} alt="Comprovante" />
                 )
               ) : (
-                <div className="text-center text-gray-500 p-10"><Eye size={56} className="mx-auto mb-4 opacity-40" /><p className="font-black text-xl text-black">Inscrição via Cartão</p></div>
+                <div className="text-center text-gray-500 p-10"><Eye size={56} className="mx-auto mb-4 opacity-40" /><p className="font-black text-xl text-black">Inscrição via Cartão / Dinheiro</p><p className="text-sm">Não há comprovante digital original.</p></div>
               )}
             </div>
 
@@ -373,67 +400,73 @@ export default function AdminDashboard() {
                 </h2>
                 <div className="flex gap-2">
                   {!modoEdicao && (
-                    <button onClick={iniciarEdicao} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-all" title="Editar Ficha">
+                    <button onClick={iniciarEdicao} className="p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-all border border-blue-200" title="Editar Ficha">
                       <Edit size={20} strokeWidth={3} />
                     </button>
                   )}
-                  <button onClick={fecharModal} className="p-2 bg-gray-100 rounded-full hover:bg-red-100 hover:text-red-600 transition-all text-gray-600">
+                  <button onClick={fecharModal} className="p-2 bg-gray-100 rounded-full hover:bg-red-100 hover:text-red-600 transition-all text-gray-600 border border-gray-200">
                     <X size={20} strokeWidth={3} />
                   </button>
                 </div>
               </div>
 
-              {/* CONDIÇÃO: SE ESTIVER NO MODO DE EDIÇÃO MOSTRA O FORMULÁRIO */}
               {modoEdicao ? (
                 <div className="space-y-4 flex-1">
                   <div>
                     <label className="text-xs font-black text-gray-500 uppercase">Nome do Titular</label>
-                    <input 
-                      type="text" 
-                      value={dadosEditados.nome_titular} 
-                      onChange={e => setDadosEditados({...dadosEditados, nome_titular: e.target.value})} 
-                      // Modificado aqui: text-black, bg-gray-50, border-gray-400
-                      className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl text-lg font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" 
-                    />
+                    <input type="text" value={dadosEditados.nome_titular} onChange={e => setDadosEditados({...dadosEditados, nome_titular: e.target.value})} className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl text-lg font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" />
                   </div>
+                  
+                  {/* --- MUDANÇA AQUI: FORMA DE PAGAMENTO E COMPROVANTE --- */}
+                  <div className="p-4 bg-orange-50 border-2 border-orange-200 rounded-xl space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-black text-orange-800 uppercase">Forma Pagamento</label>
+                        <select 
+                          value={dadosEditados.forma_pagamento || 'PIX'} 
+                          onChange={e => setDadosEditados({...dadosEditados, forma_pagamento: e.target.value})} 
+                          className="w-full p-3 border-2 border-gray-400 bg-white rounded-xl font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100"
+                        >
+                          <option value="PIX">PIX</option>
+                          <option value="Cartão de Crédito">Cartão de Crédito</option>
+                          
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-black text-orange-800 uppercase">Valor Total (R$)</label>
+                        <input type="number" value={dadosEditados.valor_total} onChange={e => setDadosEditados({...dadosEditados, valor_total: e.target.value})} className="w-full p-3 border-2 border-gray-400 bg-white rounded-xl font-black text-green-800 focus:border-green-600 focus:outline-none focus:ring-4 focus:ring-green-100 transition-all" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-black text-orange-800 uppercase">Anexar Novo Comprovante</label>
+                      <input 
+                        type="file" 
+                        accept="image/*,application/pdf"
+                        onChange={e => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            setNovoComprovante(e.target.files[0]);
+                          }
+                        }}
+                        className="w-full mt-1 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-black file:bg-orange-600 file:text-white hover:file:bg-orange-700 cursor-pointer text-sm font-bold text-gray-700 border-2 border-gray-400 rounded-xl bg-white p-1"
+                      />
+                      {dadosEditados.comprovante_url && !novoComprovante && <p className="text-[10px] font-bold text-gray-500 mt-1">*Só selecione se quiser substituir o atual.</p>}
+                    </div>
+                  </div>
+                  {/* ------------------------------------------------------ */}
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs font-black text-gray-500 uppercase">Telefone</label>
-                      <input 
-                        type="text" 
-                        value={dadosEditados.telefone} 
-                        onChange={e => setDadosEditados({...dadosEditados, telefone: e.target.value})} 
-                        className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" 
-                      />
+                      <input type="text" value={dadosEditados.telefone} onChange={e => setDadosEditados({...dadosEditados, telefone: e.target.value})} className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" />
                     </div>
                     <div>
-                      <label className="text-xs font-black text-gray-500 uppercase">Valor Total (R$)</label>
-                      <input 
-                        type="number" 
-                        value={dadosEditados.valor_total} 
-                        onChange={e => setDadosEditados({...dadosEditados, valor_total: e.target.value})} 
-                        // Modificado aqui: texto verde escuro bem forte
-                        className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-black text-green-800 focus:border-green-600 focus:outline-none focus:ring-4 focus:ring-green-100 transition-all" 
-                      />
+                      <label className="text-xs font-black text-gray-500 uppercase">Igreja</label>
+                      <input type="text" value={dadosEditados.igreja} onChange={e => setDadosEditados({...dadosEditados, igreja: e.target.value})} className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" />
                     </div>
                   </div>
                   <div>
                     <label className="text-xs font-black text-gray-500 uppercase">E-mail</label>
-                    <input 
-                      type="email" 
-                      value={dadosEditados.email} 
-                      onChange={e => setDadosEditados({...dadosEditados, email: e.target.value})} 
-                      className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-bold text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" 
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-black text-gray-500 uppercase">Igreja</label>
-                    <input 
-                      type="text" 
-                      value={dadosEditados.igreja} 
-                      onChange={e => setDadosEditados({...dadosEditados, igreja: e.target.value})} 
-                      className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-black text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" 
-                    />
+                    <input type="email" value={dadosEditados.email} onChange={e => setDadosEditados({...dadosEditados, email: e.target.value})} className="w-full p-3 border-2 border-gray-400 bg-gray-50 rounded-xl font-bold text-black focus:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all" />
                   </div>
 
                   <div className="mt-6 p-4 border-2 border-blue-300 rounded-xl bg-blue-50">
@@ -444,19 +477,8 @@ export default function AdminDashboard() {
                     
                     {dadosEditados.participantes.map((p: any, idx: number) => (
                       <div key={idx} className="flex gap-2 mb-3 bg-white p-2 rounded-xl border-2 border-gray-300 shadow-sm">
-                        <input 
-                          type="text" 
-                          placeholder="Nome Completo" 
-                          value={p.nome_completo} 
-                          onChange={e => handleParticipanteEdit(idx, 'nome_completo', e.target.value)} 
-                          // Modificado aqui: texto forte no campo de acompanhantes
-                          className="flex-1 p-2 bg-gray-50 border border-gray-400 rounded-lg text-base font-black text-black focus:border-blue-600 focus:outline-none" 
-                        />
-                        <select 
-                          value={p.sexo} 
-                          onChange={e => handleParticipanteEdit(idx, 'sexo', e.target.value)} 
-                          className="p-2 bg-gray-50 border border-gray-400 rounded-lg text-sm font-bold text-black focus:border-blue-600 focus:outline-none"
-                        >
+                        <input type="text" placeholder="Nome Completo" value={p.nome_completo} onChange={e => handleParticipanteEdit(idx, 'nome_completo', e.target.value)} className="flex-1 p-2 bg-gray-50 border border-gray-400 rounded-lg text-base font-black text-black focus:border-blue-600 focus:outline-none" />
+                        <select value={p.sexo} onChange={e => handleParticipanteEdit(idx, 'sexo', e.target.value)} className="p-2 bg-gray-50 border border-gray-400 rounded-lg text-sm font-bold text-black focus:border-blue-600 focus:outline-none">
                           <option value="Masculino">Masc</option>
                           <option value="Feminino">Fem</option>
                         </select>
@@ -467,14 +489,13 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="pt-6 flex gap-3">
-                    <button onClick={() => setModoEdicao(false)} className="flex-1 py-3 bg-gray-300 text-gray-900 font-black rounded-xl hover:bg-gray-400 transition-colors">Cancelar</button>
+                    <button onClick={() => {setModoEdicao(false); setNovoComprovante(null);}} className="flex-1 py-3 bg-gray-300 text-gray-900 font-black rounded-xl hover:bg-gray-400 transition-colors">Cancelar</button>
                     <button onClick={salvarEdicao} disabled={salvandoEdicao} className="flex-1 py-3 bg-blue-700 text-white font-black rounded-xl hover:bg-blue-800 flex justify-center items-center gap-2 shadow-lg transition-colors">
                       {salvandoEdicao ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>} Salvar Alterações
                     </button>
                   </div>
                 </div>
               ) : (
-                /* CONDIÇÃO: SE NÃO ESTIVER EDITANDO, MOSTRA O DOSSIÊ NORMAL (Sua versão original intacta) */
                 <div className="space-y-6 flex-1">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="col-span-2 p-4 bg-gray-100 rounded-2xl border border-gray-200">
@@ -530,7 +551,6 @@ export default function AdminDashboard() {
                       </button>
                     )}
                     
-                    {/* BOTÃO DE EXCLUSÃO ATUALIZADO (Aparece para pendentes ou já confirmados) */}
                     <button 
                       onClick={() => excluirInscricao(analisando.id)} 
                       className="w-full py-4 text-red-500 font-black text-xs uppercase tracking-widest hover:text-red-700 hover:bg-red-50 rounded-2xl transition-colors border border-transparent hover:border-red-100"
