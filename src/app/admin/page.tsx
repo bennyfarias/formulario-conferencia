@@ -233,7 +233,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- MATEMÁTICA CIRÚRGICA PARA OS BOTÕES ---
   const handleParticipanteEdit = (index: number, campo: string, valor: string) => {
     const copia = [...dadosEditados.participantes];
     copia[index][campo] = valor;
@@ -249,7 +248,7 @@ export default function AdminDashboard() {
   const removerParticipante = (e: React.MouseEvent, indexToRemove: number) => {
     e.preventDefault();
     const copiaRemovida = [...dadosEditados.participantes];
-    copiaRemovida.splice(indexToRemove, 1); // Corta fora o item exato clicado
+    copiaRemovida.splice(indexToRemove, 1); 
     setDadosEditados({ ...dadosEditados, participantes: copiaRemovida });
   };
 
@@ -272,7 +271,10 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" size={40} /></div>;
 
-  const totalPessoas = inscricoes.reduce((acc, curr) => acc + 1 + (curr.participantes?.length || 0), 0);
+  // --- MATEMÁTICA CORRIGIDA: Só contabiliza inscritos "Confirmados" na barra de ocupação ---
+  const totalPessoas = inscricoes
+    .filter(i => i.status_pagamento === 'confirmado')
+    .reduce((acc, curr) => acc + 1 + (curr.participantes?.length || 0), 0);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-10">
