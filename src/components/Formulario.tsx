@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Plus, Trash2, UploadCloud, CheckCircle2, Loader2, AlertCircle, Copy, FileCheck, Clock } from 'lucide-react';
+import { Plus, Trash2, UploadCloud, CheckCircle2, Loader2, AlertCircle, Copy, FileCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const MAX_FILE_SIZE = 1000000; // 1MB
@@ -44,12 +44,9 @@ const formSchema = z.object({
 });
 
 type FormData = z.infer<typeof formSchema>;
-const VALOR_UNITARIO = 70.00;
+const VALOR_UNITARIO = 75.00; // Atualizado para R$ 75,00
 
 export default function Formulario() {
-  // CONTROLE DE LOTE: Altere para false quando for abrir o 2º Lote
-  const isLoteFechado = true; 
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
@@ -149,20 +146,6 @@ export default function Formulario() {
     }
   };
 
-  // TELA DE LOTE ENCERRADO
-  if (isLoteFechado) {
-    return (
-      <div className="max-w-2xl mx-auto mt-12 p-12 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-900 text-center animate-in fade-in duration-500">
-        <Clock className="w-24 h-24 text-blue-600 mx-auto mb-6" />
-        <h2 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">1º Lote Encerrado!</h2>
-        <p className="text-gray-500 text-lg">
-          As vagas do primeiro lote esgotaram. Mas não se preocupe, logo mais abriremos o segundo lote. Fique atento às nossas redes!
-        </p>
-      </div>
-    );
-  }
-
-  // TELA DE SUCESSO
   if (isSuccess) {
     return (
       <div className="max-w-2xl mx-auto mt-12 p-12 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-900 text-center animate-in fade-in duration-500">
@@ -175,7 +158,6 @@ export default function Formulario() {
     );
   }
 
-  // FORMULÁRIO (Oculto enquanto isLoteFechado for true)
   return (
     <div className="max-w-3xl mx-auto bg-white p-8 md:p-12 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border-2 border-gray-100">
       <div className="mb-10 text-center">
@@ -317,7 +299,7 @@ export default function Formulario() {
           </div>
         </section>
 
-        {/* BLOCO 3: PAGAMENTO */}
+        {/* BLOCO 3: PAGAMENTO (Com 2º Lote destacado) */}
         <section className="bg-slate-50 p-6 md:p-8 rounded-2xl border-2 border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">3. Pagamento</h3>
           
@@ -328,7 +310,7 @@ export default function Formulario() {
                 <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] uppercase font-black rounded-md tracking-widest shadow-sm">2º Lote</span>
               </div>
               <p className="text-xl font-black text-gray-900">
-                {1 + participantesAtuais.length}x <span className="text-sm font-medium text-gray-500 ml-1">(R$ {VALOR_UNITARIO.toFixed(2).replace('.', ',')} cada)</span>
+                {1 + participantesAtuais.length}x <span className="text-sm font-medium text-gray-500 ml-1">(R$ 75,00 cada)</span>
               </p>
             </div>
             <div className="mt-4 md:mt-0 md:text-right">
