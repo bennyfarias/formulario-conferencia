@@ -8,7 +8,8 @@ import {
   Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus, Upload
 } from 'lucide-react';
 
-const LIMITE_LOTE_ATUAL = 300; 
+const LIMITE_LOTE_ATUAL = 200; // Limite do 2º lote
+const INSCRITOS_LOTE_1 = 302; // Quantidade que já foi preenchida no 1º lote para ser subtraída da barra
 
 export default function AdminDashboard() {
   const [inscricoes, setInscricoes] = useState<any[]>([]);
@@ -140,10 +141,8 @@ export default function AdminDashboard() {
     if (confirmacao) {
       try {
         setLoading(true);
-        // Apaga os participantes
         await supabase.from('participantes').delete().eq('inscricao_id', id);
         
-        // Apaga o titular
         const { data, error } = await supabase.from('inscricoes').delete().eq('id', id).select();
         
         if (error) throw error;
@@ -271,10 +270,13 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" size={40} /></div>;
 
-  // --- MATEMÁTICA CORRIGIDA: Só contabiliza inscritos "Confirmados" na barra de ocupação ---
-  const totalPessoas = inscricoes
+  // --- MATEMÁTICA CORRIGIDA E ADAPTADA PARA O 2º LOTE ---
+  const totalPessoasAbsoluto = inscricoes
     .filter(i => i.status_pagamento === 'confirmado')
     .reduce((acc, curr) => acc + 1 + (curr.participantes?.length || 0), 0);
+  
+  // Zera os 302 do primeiro lote (se por algum motivo tiver menos de 302 confirmados, evita ficar negativo com o Math.max)
+  const totalPessoasLote2 = Math.max(0, totalPessoasAbsoluto - INSCRITOS_LOTE_1);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-10">
@@ -309,11 +311,14 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-4 mb-4">
               <div className="p-4 bg-blue-100 text-blue-700 rounded-2xl"><Users size={28} strokeWidth={3}/></div>
               <div>
-                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação (1º Lote)</p>
-                <p className="text-3xl font-black text-black">{totalPessoas} / {LIMITE_LOTE_ATUAL}</p>
+                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação (2º Lote)</p>
+                <p className="text-3xl font-black text-black">{totalPessoasLote2} / {LIMITE_LOTE_ATUAL}</p>
               </div>
             </div>
-            <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden"><div className="bg-blue-600 h-full" style={{ width: `${(totalPessoas / LIMITE_LOTE_ATUAL) * 100}%` }}></div></div>
+            {/* Barra de progresso baseada apenas no 2º Lote */}
+            <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
+              <div className="bg-blue-600 h-full" style={{ width: `${(totalPessoasLote2 / LIMITE_LOTE_ATUAL) * 100}%` }}></div>
+            </div>
           </div>
           <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
             <div className="flex items-center gap-4">
