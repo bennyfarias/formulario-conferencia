@@ -8,8 +8,10 @@ import {
   Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus, Upload
 } from 'lucide-react';
 
-const LIMITE_LOTE_ATUAL = 200; // Limite do 2º lote
-const INSCRITOS_LOTE_1 = 302; // Quantidade que já foi preenchida no 1º lote para ser subtraída da barra
+// Constantes de Controle dos Lotes
+const CAPACIDADE_LOTE_1 = 302;
+const CAPACIDADE_LOTE_2 = 188;
+const CAPACIDADE_LOTE_3 = 156;
 
 export default function AdminDashboard() {
   const [inscricoes, setInscricoes] = useState<any[]>([]);
@@ -52,7 +54,7 @@ export default function AdminDashboard() {
   const exportarXLSX = () => {
     const headers = [
       "Nome Completo", "Sexo", "Tipo (Titular/Acompanhante)", "Responsável Pelo Pagamento", 
-      "Email (Apenas Titular)", "Telefone (Apenas Titular)", "Igreja", "Valor Unitário", "Status do Pagamento", "Forma de Pagamento"
+      "Email (Apenas Titular)", "Telefone (Apenas Titular)", "Igreja", "Valor Total Pago", "Status do Pagamento", "Forma de Pagamento"
     ];
     
     const rows: any[] = [];
@@ -62,7 +64,7 @@ export default function AdminDashboard() {
       rows.push([
         i.nome_titular, i.sexo || 'N/A', "Titular", "-", i.email, i.telefone,
         i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
-        i.valor_total / (1 + (i.participantes?.length || 0)), i.status_pagamento, i.forma_pagamento
+        i.valor_total, i.status_pagamento, i.forma_pagamento
       ]);
 
       if (i.participantes && i.participantes.length > 0) {
@@ -70,7 +72,7 @@ export default function AdminDashboard() {
           rows.push([
             p.nome_completo, p.sexo || 'N/A', "Acompanhante", i.nome_titular, "-", "-",
             i.igreja === 'Outras' ? i.outra_igreja : i.igreja,
-            i.valor_total / (1 + i.participantes.length), i.status_pagamento, i.forma_pagamento
+            "-", i.status_pagamento, i.forma_pagamento
           ]);
         });
       }
@@ -142,11 +144,9 @@ export default function AdminDashboard() {
       try {
         setLoading(true);
         await supabase.from('participantes').delete().eq('inscricao_id', id);
-        
         const { data, error } = await supabase.from('inscricoes').delete().eq('id', id).select();
         
         if (error) throw error;
-        
         if (!data || data.length === 0) {
           alert("⚠️ BLOQUEIO DO SUPABASE!\nVocê precisa ir no SQL Editor do Supabase e rodar o comando para liberar a exclusão (RLS).");
         } else {
@@ -179,11 +179,7 @@ export default function AdminDashboard() {
       if (novoComprovante) {
         const fileExt = novoComprovante.name.split('.').pop();
         const fileName = `admin_edit_${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('comprovantes')
-          .upload(fileName, novoComprovante, { cacheControl: '3600', upsert: false });
-
+        const { error: uploadError } = await supabase.storage.from('comprovantes').upload(fileName, novoComprovante, { cacheControl: '3600', upsert: false });
         if (uploadError) throw new Error("Erro no upload do comprovante: " + uploadError.message);
         urlComprovanteFinal = fileName;
       }
@@ -191,34 +187,22 @@ export default function AdminDashboard() {
       const { error: erroInscricao } = await supabase
         .from('inscricoes')
         .update({
-          nome_titular: dadosEditados.nome_titular,
-          sexo: dadosEditados.sexo,
-          telefone: dadosEditados.telefone,
-          email: dadosEditados.email,
-          igreja: dadosEditados.igreja,
-          outra_igreja: dadosEditados.outra_igreja,
-          valor_total: Number(dadosEditados.valor_total),
-          forma_pagamento: dadosEditados.forma_pagamento, 
-          comprovante_url: urlComprovanteFinal            
-        })
-        .eq('id', dadosEditados.id);
+          nome_titular: dadosEditados.nome_titular, sexo: dadosEditados.sexo, telefone: dadosEditados.telefone,
+          email: dadosEditados.email, igreja: dadosEditados.igreja, outra_igreja: dadosEditados.outra_igreja,
+          valor_total: Number(dadosEditados.valor_total), forma_pagamento: dadosEditados.forma_pagamento, comprovante_url: urlComprovanteFinal            
+        }).eq('id', dadosEditados.id);
 
       if (erroInscricao) throw erroInscricao;
 
       await supabase.from('participantes').delete().eq('inscricao_id', dadosEditados.id);
       
       if (dadosEditados.participantes.length > 0) {
-        const novosParticipantes = dadosEditados.participantes.map((p: any) => ({
-          inscricao_id: dadosEditados.id,
-          nome_completo: p.nome_completo,
-          sexo: p.sexo || 'Masculino'
-        }));
+        const novosParticipantes = dadosEditados.participantes.map((p: any) => ({ inscricao_id: dadosEditados.id, nome_completo: p.nome_completo, sexo: p.sexo || 'Masculino' }));
         const { error: erroPart } = await supabase.from('participantes').insert(novosParticipantes);
         if (erroPart) throw erroPart;
       }
 
       alert("Dados atualizados com sucesso!");
-      
       const { data } = await supabase.from('inscricoes').select('*, participantes(*)').eq('id', dadosEditados.id).single();
       setAnalisando(data);
       setModoEdicao(false);
@@ -252,9 +236,7 @@ export default function AdminDashboard() {
   };
 
   const fecharModal = () => {
-    setAnalisando(null);
-    setModoEdicao(false);
-    setNovoComprovante(null);
+    setAnalisando(null); setModoEdicao(false); setNovoComprovante(null);
   };
 
   const handleLogout = async () => {
@@ -270,13 +252,24 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" size={40} /></div>;
 
-  // --- MATEMÁTICA CORRIGIDA E ADAPTADA PARA O 2º LOTE ---
+  // LÓGICA AUTOMÁTICA DE EXIBIÇÃO NO ADMIN
   const totalPessoasAbsoluto = inscricoes
     .filter(i => i.status_pagamento === 'confirmado')
     .reduce((acc, curr) => acc + 1 + (curr.participantes?.length || 0), 0);
   
-  // Zera os 302 do primeiro lote (se por algum motivo tiver menos de 302 confirmados, evita ficar negativo com o Math.max)
-  const totalPessoasLote2 = Math.max(0, totalPessoasAbsoluto - INSCRITOS_LOTE_1);
+  let loteExibicao = 2;
+  let ocupacaoLote = 0;
+  let limiteLote = CAPACIDADE_LOTE_2;
+
+  if (totalPessoasAbsoluto < CAPACIDADE_LOTE_1 + CAPACIDADE_LOTE_2) {
+    loteExibicao = 2;
+    limiteLote = CAPACIDADE_LOTE_2;
+    ocupacaoLote = Math.max(0, totalPessoasAbsoluto - CAPACIDADE_LOTE_1);
+  } else {
+    loteExibicao = 3;
+    limiteLote = CAPACIDADE_LOTE_3;
+    ocupacaoLote = Math.max(0, totalPessoasAbsoluto - (CAPACIDADE_LOTE_1 + CAPACIDADE_LOTE_2));
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-10">
@@ -311,13 +304,13 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-4 mb-4">
               <div className="p-4 bg-blue-100 text-blue-700 rounded-2xl"><Users size={28} strokeWidth={3}/></div>
               <div>
-                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação (2º Lote)</p>
-                <p className="text-3xl font-black text-black">{totalPessoasLote2} / {LIMITE_LOTE_ATUAL}</p>
+                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação ({loteExibicao}º Lote)</p>
+                <p className="text-3xl font-black text-black">{ocupacaoLote} / {limiteLote}</p>
               </div>
             </div>
-            {/* Barra de progresso baseada apenas no 2º Lote */}
+            {/* Barra de progresso baseada apenas no Lote Ativo */}
             <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
-              <div className="bg-blue-600 h-full" style={{ width: `${(totalPessoasLote2 / LIMITE_LOTE_ATUAL) * 100}%` }}></div>
+              <div className={`h-full ${loteExibicao === 2 ? 'bg-blue-600' : 'bg-purple-600'}`} style={{ width: `${(ocupacaoLote / limiteLote) * 100}%` }}></div>
             </div>
           </div>
           <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
