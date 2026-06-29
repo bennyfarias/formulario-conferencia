@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -22,13 +23,12 @@ export default function CrachasPage() {
         return;
       }
 
-      const listaCrachas: any[] = [];
+      const listaCrachas:any[] = [];
 
-      data?.forEach((inscricao) => {
-        const igrejaNome =
-          inscricao.igreja === 'Outras'
-            ? inscricao.outra_igreja
-            : inscricao.igreja;
+      data?.forEach((inscricao:any) => {
+        const igrejaNome = inscricao.igreja === 'Outras'
+          ? inscricao.outra_igreja
+          : inscricao.igreja;
 
         listaCrachas.push({
           id: inscricao.id,
@@ -37,20 +37,17 @@ export default function CrachasPage() {
           igreja: igrejaNome,
         });
 
-        if (inscricao.participantes?.length > 0) {
-          inscricao.participantes.forEach((p: any) => {
-            listaCrachas.push({
-              id: p.id,
-              tipo: 'acompanhante',
-              nome: p.nome_completo,
-              igreja: igrejaNome,
-            });
+        inscricao.participantes?.forEach((p:any) => {
+          listaCrachas.push({
+            id: p.id,
+            tipo: 'acompanhante',
+            nome: p.nome_completo,
+            igreja: igrejaNome,
           });
-        }
+        });
       });
 
-      listaCrachas.sort((a, b) => a.nome.localeCompare(b.nome));
-
+      listaCrachas.sort((a,b)=>a.nome.localeCompare(b.nome));
       setCrachas(listaCrachas);
       setLoading(false);
     }
@@ -61,161 +58,127 @@ export default function CrachasPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <Loader2 className="animate-spin text-black" size={42} />
+        <Loader2 className="animate-spin text-black" size={42}/>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-200 p-8">
+    <div className="min-h-screen bg-gray-200 p-6">
 
-      {/* Barra Superior */}
-      <div className="max-w-6xl mx-auto mb-8 flex justify-between items-center print:hidden bg-white rounded-xl shadow p-6">
-
+      <div className="max-w-6xl mx-auto mb-6 flex justify-between items-center bg-white rounded-xl shadow p-6 print:hidden">
         <div>
-          <h1 className="text-3xl font-black">
-            Gerador de Crachás
-          </h1>
-
-          <p className="text-gray-500 mt-1">
-            Total para impressão: <strong>{crachas.length}</strong> crachás.
-          </p>
+          <h1 className="text-3xl font-black text-black">Gerador de Etiquetas</h1>
+          <p className="text-gray-600">Total: <strong>{crachas.length}</strong></p>
         </div>
 
         <button
           onClick={() => window.print()}
-          className="flex items-center gap-2 px-6 py-3 bg-black text-white rounded-xl font-bold hover:bg-gray-800 transition"
+          className="flex items-center gap-2 px-5 py-3 bg-black text-white rounded-xl"
         >
-          <Printer size={20} />
-          Imprimir Tudo
+          <Printer size={20}/>
+          Imprimir
         </button>
-
       </div>
 
-      {/* Área de impressão */}
       <div
-        className="mx-auto flex flex-wrap justify-center gap-3 print:gap-0"
-        style={{
-          maxWidth: '21cm',
-        }}
+        className="mx-auto flex flex-wrap print:gap-0"
+        style={{ width: '210mm' }}
       >
-
-        {crachas.map((c, index) => (
-
+        {crachas.map((c,index)=>(
           <div
             key={index}
-            className="bg-white border border-gray-400 flex flex-col overflow-hidden"
             style={{
-              width: '7.8cm',
-              height: '2.8cm',
-              margin: '2mm',
-              pageBreakInside: 'avoid',
-              breakInside: 'avoid',
+              width:'63.5mm',
+              height:'25.4mm',
+              boxSizing:'border-box',
+              overflow:'hidden',
+              background:'#fff',
+              pageBreakInside:'avoid',
+              breakInside:'avoid',
+              display:'flex',
+              flexDirection:'column'
             }}
           >
-
-            {/* Cabeçalho */}
-            <div
-              className="bg-black text-white text-center font-bold uppercase"
-              style={{
-                fontSize: '7px',
-                padding: '1.5px',
-                letterSpacing: '1px',
-              }}
-            >
-              Fé Reformada 2026
+            <div style={{
+              background:'#000',
+              color:'#fff',
+              textAlign:'center',
+              fontWeight:700,
+              fontSize:'7px',
+              padding:'1.2mm'
+            }}>
+              FÉ REFORMADA 2026
             </div>
 
-            {/* Conteúdo */}
-            <div
-             className="flex flex-1 items-center"
-  style={{
-    padding: "2mm",
-    background: "#fff",
-    color: "#000",
-              }}
-            >
-
-              {/* Nome */}
-              <div
-                style={{
-                  width: '62%',
-                  overflow: 'hidden',
-                }}
-              >
-
-                <div
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 900,
-                    lineHeight: '11px',
-                    textTransform: 'uppercase',
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {c.nome}
-                </div>
-
-                <div
-                  style={{
-                    marginTop: '3px',
-                    fontSize: '8px',
-                    color: '#666',
-                    fontWeight: 600,
-                    lineHeight: '9px',
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {c.igreja}
-                </div>
-
-              </div>
-
-              {/* QRCode */}
-              <div
-                style={{
-                  width: "2.1cm",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      flexShrink: 0,
-                }}
-              >
+            <div style={{
+              flex:1,
+              display:'flex',
+              alignItems:'center',
+              padding:'1.5mm'
+            }}>
+              <div style={{
+                width:'20mm',
+                display:'flex',
+                justifyContent:'center',
+                alignItems:'center'
+              }}>
                 <QRCodeSVG
-                   value={`${c.tipo}|${c.id}`}
-      size={72}
-      level="H"
-      includeMargin={false}
+                  value={`${c.tipo}|${c.id}`}
+                  size={70}
+                  level="H"
+                  includeMargin={false}
                 />
               </div>
 
+              <div style={{
+                flex:1,
+                paddingLeft:'2mm',
+                color:'#000'
+              }}>
+                <div style={{
+                  fontWeight:900,
+                  fontSize:'11px',
+                  lineHeight:'12px',
+                  textTransform:'uppercase',
+                  wordBreak:'break-word'
+                }}>
+                  {c.nome}
+                </div>
+
+                <div style={{
+                  marginTop:'2mm',
+                  fontSize:'8px',
+                  lineHeight:'9px',
+                  color:'#444',
+                  wordBreak:'break-word'
+                }}>
+                  {c.igreja}
+                </div>
+              </div>
             </div>
-
           </div>
-
         ))}
-
       </div>
 
       <style jsx global>{`
-        @media print {
+        @page{
+          size:A4 portrait;
+          margin:0;
+        }
 
-          body {
-            background: white !important;
-            margin: 0;
+        @media print{
+          html,body{
+            background:#fff !important;
+            margin:0;
+            padding:0;
           }
 
-          .print\\:hidden {
-            display: none !important;
-          }
-
-          @page {
-            size: A4 portrait;
-            margin: 8mm;
+          .print\\:hidden{
+            display:none !important;
           }
         }
       `}</style>
-
     </div>
   );
 }
