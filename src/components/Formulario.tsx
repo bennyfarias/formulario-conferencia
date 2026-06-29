@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -11,32 +11,22 @@ const MAX_FILE_SIZE = 1000000; // 1MB
 
 const formSchema = z.object({
   nomeTitular: z.string().min(3, 'O nome deve ter pelo menos 3 letras.'),
-  sexo: z.enum(['Masculino', 'Feminino'], { 
-    error: 'Selecione o sexo do titular.' 
-  }),
+  sexo: z.enum(['Masculino', 'Feminino'], { error: 'Selecione o sexo do titular.' }),
   email: z.string().email('Digite um email válido.'),
   telefone: z.string().min(10, 'Digite um telefone com DDD.'),
   igreja: z.enum(['PIPR', '2IPBV', '3IPBV', '4IPBV', '5IPBV', '6IPBV', 'IPRO', 'Outras']),
   outra_igreja: z.string().optional(),
   participantes: z.array(z.object({ 
     nome: z.string().min(3, 'Nome obrigatório.'),
-    sexo: z.enum(['Masculino', 'Feminino'], { 
-      error: 'Selecione o sexo do acompanhante.' 
-    })
+    sexo: z.enum(['Masculino', 'Feminino'], { error: 'Selecione o sexo do acompanhante.' })
   })),
   formaPagamento: z.enum(['pix', 'cartao']),
   comprovante: z.any().optional(),
   
-  aceite_lgpd: z.boolean().refine((val) => val === true, {
-    message: 'Você precisa concordar com os termos da LGPD.',
-  }),
-  aceite_imagem: z.boolean().refine((val) => val === true, {
-    message: 'Você precisa concordar com o uso de imagem.',
-  }),
+  aceite_lgpd: z.boolean().refine((val) => val === true, { message: 'Você precisa concordar com os termos da LGPD.' }),
+  aceite_imagem: z.boolean().refine((val) => val === true, { message: 'Você precisa concordar com o uso de imagem.' }),
 }).refine((data) => {
-  if (data.igreja === 'Outras' && (!data.outra_igreja || data.outra_igreja.trim() === '')) {
-    return false;
-  }
+  if (data.igreja === 'Outras' && (!data.outra_igreja || data.outra_igreja.trim() === '')) return false;
   return true;
 }, {
   message: 'Por favor, informe o nome da sua igreja.',
@@ -44,24 +34,55 @@ const formSchema = z.object({
 });
 
 type FormData = z.infer<typeof formSchema>;
-const VALOR_UNITARIO = 70.00;
 
 export default function Formulario() {
-  // CONTROLE DE LOTE: Altere para false quando for abrir o 2º Lote
-  const isLoteFechado = true; 
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  // ESTADOS DA AUTOMAÇÃO DE LOTES
+  const [carregandoLote, setCarregandoLote] = useState(true);
+  const [loteAtivo, setLoteAtivo] = useState(2);
+  const [valorUnitario, setValorUnitario] = useState(75.00);
+  const [vagasEsgotadas, setVagasEsgotadas] = useState(false);
+
+  useEffect(() => {
+    async function verificarLoteAutomatico() {
+      try {
+        const { data, error } = await supabase.from('inscricoes').select('status_pagamento, participantes(id)');
+        if (error) throw error;
+
+        let totalConfirmados = 0;
+        data?.forEach(i => {
+          if (i.status_pagamento === 'confirmado') {
+            totalConfirmados += 1 + (i.participantes?.length || 0);
+          }
+        });
+
+        const MAX_LOTE_1 = 302;
+        const MAX_LOTE_2 = 188;
+        const MAX_LOTE_3 = 156;
+
+        if (totalConfirmados < (MAX_LOTE_1 + MAX_LOTE_2)) {
+          setLoteAtivo(2);
+          setValorUnitario(75.00);
+        } else if (totalConfirmados < (MAX_LOTE_1 + MAX_LOTE_2 + MAX_LOTE_3)) {
+          setLoteAtivo(3);
+          setValorUnitario(80.00);
+        } else {
+          setVagasEsgotadas(true);
+        }
+      } catch (error) {
+        console.error("Erro ao verificar lotes:", error);
+      } finally {
+        setCarregandoLote(false);
+      }
+    }
+    verificarLoteAutomatico();
+  }, []);
+
   const { register, control, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: { 
-      igreja: 'PIPR', 
-      participantes: [], 
-      formaPagamento: 'pix',
-      aceite_lgpd: false,
-      aceite_imagem: false,
-    },
+    defaultValues: { igreja: 'PIPR', participantes: [], formaPagamento: 'pix', aceite_lgpd: false, aceite_imagem: false },
   });
 
   const { fields, append, remove } = useFieldArray({ control, name: 'participantes' });
@@ -74,10 +95,11 @@ export default function Formulario() {
   const arquivoAnexado = comprovanteFile && comprovanteFile.length > 0 ? comprovanteFile[0] : null;
   const arquivoExcedeuLimite = arquivoAnexado && arquivoAnexado.size > MAX_FILE_SIZE;
 
-  const valorTotal = (1 + participantesAtuais.length) * VALOR_UNITARIO;
+  const valorTotal = (1 + participantesAtuais.length) * valorUnitario;
 
+  // CÓDIGO ATUALIZADO DO PIX
   const copiarChavePix = () => {
-    navigator.clipboard.writeText('10964697000174');
+    navigator.clipboard.writeText('95981188644');
     alert('Chave PIX copiada com sucesso!');
   };
 
@@ -90,24 +112,18 @@ export default function Formulario() {
         const file = data.comprovante?.[0];
         if (!file) {
           alert("Por favor, anexe o comprovante (Foto ou PDF) do PIX.");
-          setIsSubmitting(false);
-          return;
+          setIsSubmitting(false); return;
         }
-
         if (file.size > MAX_FILE_SIZE) {
           alert("O arquivo é muito grande. O limite máximo é 1MB. Por favor, anexe um arquivo menor.");
-          setIsSubmitting(false);
-          return;
+          setIsSubmitting(false); return;
         }
 
         const fileExt = file.name.split('.').pop();
         const fileName = `${Math.random()}.${fileExt}`;
         const filePath = `comprovantes/${fileName}`;
 
-        const { error: uploadError } = await supabase.storage
-          .from('comprovantes')
-          .upload(filePath, file);
-
+        const { error: uploadError } = await supabase.storage.from('comprovantes').upload(filePath, file);
         if (uploadError) throw uploadError;
         comprovanteUrl = filePath;
       }
@@ -115,28 +131,16 @@ export default function Formulario() {
       const { data: inscricao, error: inscricaoError } = await supabase
         .from('inscricoes')
         .insert([{
-          nome_titular: data.nomeTitular,
-          sexo: data.sexo,
-          email: data.email,
-          telefone: data.telefone,
-          igreja: data.igreja,
-          outra_igreja: data.igreja === 'Outras' ? data.outra_igreja : null,
-          forma_pagamento: data.formaPagamento,
-          valor_total: valorTotal,
-          comprovante_url: comprovanteUrl,
-          status_pagamento: 'pendente'
+          nome_titular: data.nomeTitular, sexo: data.sexo, email: data.email, telefone: data.telefone,
+          igreja: data.igreja, outra_igreja: data.igreja === 'Outras' ? data.outra_igreja : null,
+          forma_pagamento: data.formaPagamento, valor_total: valorTotal, comprovante_url: comprovanteUrl, status_pagamento: 'pendente'
         }])
-        .select()
-        .single();
+        .select().single();
 
       if (inscricaoError) throw inscricaoError;
 
       if (data.participantes.length > 0) {
-        const pData = data.participantes.map(p => ({
-          inscricao_id: inscricao.id,
-          nome_completo: p.nome,
-          sexo: p.sexo 
-        }));
+        const pData = data.participantes.map(p => ({ inscricao_id: inscricao.id, nome_completo: p.nome, sexo: p.sexo }));
         const { error: pError } = await supabase.from('participantes').insert(pData);
         if (pError) throw pError;
       }
@@ -149,33 +153,36 @@ export default function Formulario() {
     }
   };
 
-  // TELA DE LOTE ENCERRADO
-  if (isLoteFechado) {
+  if (carregandoLote) {
     return (
-      <div className="max-w-2xl mx-auto mt-12 p-12 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-900 text-center animate-in fade-in duration-500">
-        <Clock className="w-24 h-24 text-blue-600 mx-auto mb-6" />
-        <h2 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">1º Lote Encerrado!</h2>
-        <p className="text-gray-500 text-lg">
-          As vagas do primeiro lote esgotaram. Mas não se preocupe, logo mais abriremos o segundo lote. Fique atento às nossas redes!
-        </p>
+      <div className="max-w-2xl mx-auto mt-12 p-12 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-900 text-center flex flex-col items-center justify-center">
+        <Loader2 className="w-16 h-16 text-blue-600 animate-spin mb-4" />
+        <h2 className="text-xl font-bold text-gray-900">Verificando disponibilidade de vagas...</h2>
       </div>
     );
   }
 
-  // TELA DE SUCESSO
+  // TELA DE ESGOTADO (SÓ APARECE SE PASSAR DO 3º LOTE)
+  if (vagasEsgotadas) {
+    return (
+      <div className="max-w-2xl mx-auto mt-12 p-12 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-900 text-center animate-in fade-in duration-500">
+        <Clock className="w-24 h-24 text-red-600 mx-auto mb-6" />
+        <h2 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">Vagas Esgotadas!</h2>
+        <p className="text-gray-500 text-lg">Infelizmente todos os lotes da conferência foram preenchidos.</p>
+      </div>
+    );
+  }
+
   if (isSuccess) {
     return (
       <div className="max-w-2xl mx-auto mt-12 p-12 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-900 text-center animate-in fade-in duration-500">
         <CheckCircle2 className="w-24 h-24 text-green-500 mx-auto mb-6" />
         <h2 className="text-3xl font-black text-gray-900 mb-4 tracking-tight">Pré-reserva Realizada!</h2>
-        <p className="text-gray-500 text-lg">
-          Seus dados foram recebidos. Sua inscrição será confirmada oficialmente no sistema após a validação do pagamento.
-        </p>
+        <p className="text-gray-500 text-lg">Seus dados foram recebidos. Sua inscrição será confirmada oficialmente no sistema após a validação do pagamento.</p>
       </div>
     );
   }
 
-  // FORMULÁRIO (Oculto enquanto isLoteFechado for true)
   return (
     <div className="max-w-3xl mx-auto bg-white p-8 md:p-12 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border-2 border-gray-100">
       <div className="mb-10 text-center">
@@ -192,20 +199,13 @@ export default function Formulario() {
             
             <div className="md:col-span-2">
               <label className="block text-sm font-bold text-gray-900 mb-1.5">Nome Completo</label>
-              <input 
-                {...register('nomeTitular')} 
-                className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" 
-              />
+              <input {...register('nomeTitular')} className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" />
               {errors.nomeTitular && <p className="text-red-500 text-sm mt-1.5 font-medium">{errors.nomeTitular.message}</p>}
             </div>
 
             <div>
               <label className="block text-sm font-bold text-gray-900 mb-1.5">Sexo</label>
-              <select 
-                defaultValue=""
-                {...register('sexo')} 
-                className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all"
-              >
+              <select defaultValue="" {...register('sexo')} className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all">
                 <option value="" disabled className="text-gray-400">Selecione...</option>
                 <option value="Masculino" className="text-gray-900">Masculino</option>
                 <option value="Feminino" className="text-gray-900">Feminino</option>
@@ -215,29 +215,19 @@ export default function Formulario() {
 
             <div>
               <label className="block text-sm font-bold text-gray-900 mb-1.5">Telefone (WhatsApp)</label>
-              <input 
-                {...register('telefone')} 
-                className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" 
-              />
+              <input {...register('telefone')} className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" />
               {errors.telefone && <p className="text-red-500 text-sm mt-1.5 font-medium">{errors.telefone.message}</p>}
             </div>
 
             <div className="md:col-span-2">
               <label className="block text-sm font-bold text-gray-900 mb-1.5">Email</label>
-              <input 
-                type="email" 
-                {...register('email')} 
-                className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" 
-              />
+              <input type="email" {...register('email')} className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" />
               {errors.email && <p className="text-red-500 text-sm mt-1.5 font-medium">{errors.email.message}</p>}
             </div>
 
             <div className="md:col-span-2">
               <label className="block text-sm font-bold text-gray-900 mb-1.5">Igreja</label>
-              <select 
-                {...register('igreja')} 
-                className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all"
-              >
+              <select {...register('igreja')} className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all">
                 {['PIPR', '2IPBV', '3IPBV', '4IPBV', '5IPBV', '6IPBV', 'IPRO', 'Outras'].map(i => (
                   <option key={i} value={i} className="text-gray-900 bg-white">{i}</option>
                 ))}
@@ -247,11 +237,7 @@ export default function Formulario() {
             {igrejaSelecionada === 'Outras' && (
               <div className="md:col-span-2 animate-in fade-in slide-in-from-top-2 duration-300">
                 <label className="block text-sm font-bold text-blue-800 mb-1.5">Qual é a sua igreja?</label>
-                <input 
-                  {...register('outra_igreja')} 
-                  placeholder="Digite o nome da sua igreja"
-                  className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" 
-                />
+                <input {...register('outra_igreja')} placeholder="Digite o nome da sua igreja" className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" />
                 {errors.outra_igreja && <p className="text-red-500 text-sm mt-1.5 font-medium">{errors.outra_igreja.message}</p>}
               </div>
             )}
@@ -262,62 +248,33 @@ export default function Formulario() {
         <section>
           <div className="flex justify-between items-center border-b-2 border-gray-100 pb-3 mb-6">
             <h3 className="text-lg font-semibold text-gray-900">2. Inscrições Adicionais</h3>
-            <button 
-              type="button" 
-              onClick={() => append({ nome: '', sexo: undefined as any })} 
-              className="flex items-center gap-2 text-sm text-blue-600 font-bold hover:text-blue-800 transition-colors"
-            >
-              <Plus size={18}/> Adicionar
-            </button>
+            <button type="button" onClick={() => append({ nome: '', sexo: undefined as any })} className="flex items-center gap-2 text-sm text-blue-600 font-bold hover:text-blue-800 transition-colors"><Plus size={18}/> Adicionar</button>
           </div>
-          
-          {fields.length === 0 && (
-            <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
-              Deseja inscrever mais pessoas? Clique em adicionar e preencha os dados dos demais.
-            </p>
-          )}
-
+          {fields.length === 0 && <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">Deseja inscrever mais pessoas? Clique em adicionar e preencha os dados dos demais.</p>}
           <div className="space-y-4">
             {fields.map((field, index) => (
               <div key={field.id} className="flex flex-col sm:flex-row items-start gap-4 p-4 bg-gray-50 border border-gray-200 rounded-xl">
-                
                 <div className="w-full sm:flex-1">
                   <label className="block text-xs font-bold text-gray-600 mb-1 uppercase tracking-wider">Nome</label>
-                  <input 
-                    {...register(`participantes.${index}.nome` as const)} 
-                    className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" 
-                    placeholder={`Nome completo do acompanhante ${index + 1}`} 
-                  />
+                  <input {...register(`participantes.${index}.nome` as const)} className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none transition-all" placeholder={`Nome acompanhante ${index + 1}`} />
                   {errors.participantes?.[index]?.nome && <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.participantes[index]?.nome?.message}</p>}
                 </div>
-
                 <div className="w-full sm:w-48">
                   <label className="block text-xs font-bold text-gray-600 mb-1 uppercase tracking-wider">Sexo</label>
-                  <select 
-                    defaultValue=""
-                    {...register(`participantes.${index}.sexo` as const)} 
-                    className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all"
-                  >
+                  <select defaultValue="" {...register(`participantes.${index}.sexo` as const)} className="w-full px-4 py-3 text-gray-900 rounded-xl border-2 border-gray-900 focus:ring-4 focus:ring-blue-100 focus:border-blue-600 outline-none bg-white transition-all">
                     <option value="" disabled className="text-gray-400">Selecione...</option>
-                    <option value="Masculino" className="text-gray-900">Masculino</option>
-                    <option value="Feminino" className="text-gray-900">Feminino</option>
+                    <option value="Masculino">Masculino</option>
+                    <option value="Feminino">Feminino</option>
                   </select>
                   {errors.participantes?.[index]?.sexo && <p className="text-red-500 text-xs mt-1.5 font-medium">{errors.participantes[index]?.sexo?.message}</p>}
                 </div>
-
-                <button 
-                  type="button" 
-                  onClick={() => remove(index)} 
-                  className="p-3 text-red-500 border-2 border-red-200 hover:bg-red-50 hover:border-red-500 rounded-xl transition-all self-end sm:mb-[2px] mt-2 sm:mt-0"
-                >
-                  <Trash2 size={20}/>
-                </button>
+                <button type="button" onClick={() => remove(index)} className="p-3 text-red-500 border-2 border-red-200 hover:bg-red-50 hover:border-red-500 rounded-xl transition-all self-end sm:mb-[2px] mt-2 sm:mt-0"><Trash2 size={20}/></button>
               </div>
             ))}
           </div>
         </section>
 
-        {/* BLOCO 3: PAGAMENTO */}
+        {/* BLOCO 3: PAGAMENTO (Automático) */}
         <section className="bg-slate-50 p-6 md:p-8 rounded-2xl border-2 border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">3. Pagamento</h3>
           
@@ -325,10 +282,12 @@ export default function Formulario() {
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-sm text-gray-600 font-bold">Total de Ingressos</p>
-                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] uppercase font-black rounded-md tracking-widest shadow-sm">2º Lote</span>
+                <span className={`px-2 py-0.5 text-[10px] uppercase font-black rounded-md tracking-widest shadow-sm ${loteAtivo === 2 ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                  {loteAtivo}º Lote
+                </span>
               </div>
               <p className="text-xl font-black text-gray-900">
-                {1 + participantesAtuais.length}x <span className="text-sm font-medium text-gray-500 ml-1">(R$ {VALOR_UNITARIO.toFixed(2).replace('.', ',')} cada)</span>
+                {1 + participantesAtuais.length}x <span className="text-sm font-medium text-gray-500 ml-1">(R$ {valorUnitario.toFixed(2).replace('.', ',')} cada)</span>
               </p>
             </div>
             <div className="mt-4 md:mt-0 md:text-right">
@@ -353,60 +312,36 @@ export default function Formulario() {
             </div>
           </div>
 
+          {/* DADOS DO PIX ATUALIZADOS */}
           {formaPagamento === 'pix' && (
             <div className="mt-6 space-y-6 animate-in fade-in duration-300">
-              <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row items-center gap-8 shadow-sm">
-                <div className="shrink-0 bg-white p-3 rounded-2xl shadow-sm border-2 border-blue-200 flex flex-col items-center">
-                  <img src="/qrcode.jpg" alt="QR Code PIX" className="w-36 h-36 object-contain mb-2" />
-                  <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Escaneie Aqui</p>
-                </div>
-                <div className="flex-1 w-full">
+              <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6 md:p-8 shadow-sm">
+                <div className="w-full">
                   <h4 className="font-black text-blue-900 mb-4 text-lg text-center md:text-left">Dados para Transferência</h4>
                   <div className="space-y-3 text-sm text-blue-800">
                     <div className="flex flex-col sm:flex-row justify-between sm:items-center bg-white p-3.5 rounded-xl border-2 border-blue-200 gap-3">
                       <div>
-                        <p className="text-[10px] uppercase font-black text-blue-500 mb-0.5">Chave PIX (CNPJ)</p>
-                        <p className="font-black text-lg text-blue-900 tracking-wide">10.964.697/0001-74</p>
+                        <p className="text-[10px] uppercase font-black text-blue-500 mb-0.5">Chave PIX (Celular)</p>
+                        <p className="font-black text-lg text-blue-900 tracking-wide">95 98118-8644</p>
                       </div>
-                      <button type="button" onClick={copiarChavePix} className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-bold text-xs flex items-center justify-center gap-2 shadow-sm">
-                        <Copy size={14} /> Copiar
-                      </button>
+                      <button type="button" onClick={copiarChavePix} className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-bold text-xs flex items-center justify-center gap-2 shadow-sm"><Copy size={14} /> Copiar</button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="bg-white p-3.5 rounded-xl border-2 border-blue-200">
-                        <p className="text-[10px] uppercase font-black text-blue-500 mb-0.5">Titular da Conta</p>
-                        <p className="font-bold text-blue-900">Presbitério do Estado de Roraima</p>
-                      </div>
-                      <div className="bg-white p-3.5 rounded-xl border-2 border-blue-200">
-                        <p className="text-[10px] uppercase font-black text-blue-500 mb-0.5">Agência e Conta</p>
-                        <p className="font-bold text-blue-900">Ag: <span className="text-blue-700">0250</span> | CC: <span className="text-blue-700">137081-2</span></p>
-                      </div>
+                    <div className="bg-white p-3.5 rounded-xl border-2 border-blue-200">
+                      <p className="text-[10px] uppercase font-black text-blue-500 mb-0.5">Titular da Conta</p>
+                      <p className="font-bold text-blue-900">Segunda Igreja Presbiteriana de Boa Vista</p>
                     </div>
                   </div>
                 </div>
               </div>
               
-              <div className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all ${
-                arquivoExcedeuLimite ? 'border-red-500 bg-red-50' 
-                : arquivoAnexado ? 'border-green-500 bg-green-50' 
-                : 'border-gray-900 bg-white hover:border-blue-500 hover:bg-blue-50'
-              }`}>
-                
+              <div className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all ${arquivoExcedeuLimite ? 'border-red-500 bg-red-50' : arquivoAnexado ? 'border-green-500 bg-green-50' : 'border-gray-900 bg-white hover:border-blue-500 hover:bg-blue-50'}`}>
                 {arquivoAnexado ? (
                   <>
                     <FileCheck className={`w-12 h-12 mx-auto mb-3 ${arquivoExcedeuLimite ? 'text-red-500' : 'text-green-500'}`} />
-                    <p className={`text-sm font-black mb-1 ${arquivoExcedeuLimite ? 'text-red-700' : 'text-green-900'}`}>
-                      {arquivoExcedeuLimite ? 'Arquivo Rejeitado' : 'Comprovante Anexado!'}
-                    </p>
-                    <p className={`text-xs mb-4 font-medium truncate max-w-xs mx-auto ${arquivoExcedeuLimite ? 'text-red-600' : 'text-green-700'}`}>
-                      {arquivoAnexado.name}
-                    </p>
-                    
+                    <p className={`text-sm font-black mb-1 ${arquivoExcedeuLimite ? 'text-red-700' : 'text-green-900'}`}>{arquivoExcedeuLimite ? 'Arquivo Rejeitado' : 'Comprovante Anexado!'}</p>
+                    <p className={`text-xs mb-4 font-medium truncate max-w-xs mx-auto ${arquivoExcedeuLimite ? 'text-red-600' : 'text-green-700'}`}>{arquivoAnexado.name}</p>
                     {arquivoExcedeuLimite && (
-                      <div className="flex items-center justify-center gap-2 mb-4 text-red-600 font-bold bg-white p-2 rounded-lg border border-red-200">
-                        <AlertCircle size={18} />
-                        <span className="text-xs">O arquivo passou de 1MB. Envie um menor.</span>
-                      </div>
+                      <div className="flex items-center justify-center gap-2 mb-4 text-red-600 font-bold bg-white p-2 rounded-lg border border-red-200"><AlertCircle size={18} /><span className="text-xs">O arquivo passou de 1MB. Envie um menor.</span></div>
                     )}
                   </>
                 ) : (
@@ -416,16 +351,10 @@ export default function Formulario() {
                     <p className="text-xs text-gray-500 mb-4 font-medium">PDF oficial do banco ou Print/Captura de Tela (Máx 1MB).</p>
                   </>
                 )}
-
                 <input type="file" id="comp" accept="image/*,application/pdf" className="hidden" {...register('comprovante')} />
-                
-                <label htmlFor="comp" className={`inline-block px-6 py-3 font-bold text-sm rounded-xl cursor-pointer transition-colors shadow-sm ${
-                  arquivoAnexado && !arquivoExcedeuLimite ? 'bg-green-600 hover:bg-green-700 text-white' 
-                  : 'bg-gray-900 hover:bg-black text-white'
-                }`}>
+                <label htmlFor="comp" className={`inline-block px-6 py-3 font-bold text-sm rounded-xl cursor-pointer transition-colors shadow-sm ${arquivoAnexado && !arquivoExcedeuLimite ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-900 hover:bg-black text-white'}`}>
                   {arquivoAnexado ? 'Trocar de Arquivo' : 'Escolher Arquivo'}
                 </label>
-                
                 {errors.comprovante && <p className="text-red-500 text-sm mt-3 font-bold">{errors.comprovante.message as string}</p>}
               </div>
             </div>
@@ -436,10 +365,7 @@ export default function Formulario() {
               <AlertCircle className="text-blue-600 shrink-0 mt-0.5" size={24} />
               <div>
                 <h4 className="font-black text-blue-900 mb-1">Pagamento Presencial</h4>
-                <p className="text-sm text-blue-800 leading-relaxed font-medium">
-                  Para pagamentos no cartão, por favor dirija-se à <strong>Segunda IPBV</strong>. 
-                  Ao clicar em finalizar abaixo, sua vaga será pré-reservada. A inscrição só será oficializada no sistema após a confirmação do pagamento presencial.
-                </p>
+                <p className="text-sm text-blue-800 leading-relaxed font-medium">Para pagamentos no cartão, por favor dirija-se à <strong>Segunda IPBV</strong>. Ao clicar em finalizar abaixo, sua vaga será pré-reservada. A inscrição só será oficializada no sistema após a confirmação do pagamento presencial.</p>
               </div>
             </div>
           )}
@@ -449,34 +375,19 @@ export default function Formulario() {
         <section className="space-y-4">
           <div className="flex items-start gap-3 p-4 bg-gray-50 border-2 border-gray-200 rounded-xl transition-colors hover:bg-gray-100">
             <div className="flex items-center h-5 mt-0.5">
-              <input
-                id="lgpd"
-                type="checkbox"
-                {...register('aceite_lgpd')}
-                className="w-5 h-5 text-blue-600 bg-white border-2 border-gray-400 rounded focus:ring-blue-500 cursor-pointer"
-              />
+              <input id="lgpd" type="checkbox" {...register('aceite_lgpd')} className="w-5 h-5 text-blue-600 bg-white border-2 border-gray-400 rounded focus:ring-blue-500 cursor-pointer" />
             </div>
             <div className="text-sm">
-              <label htmlFor="lgpd" className="font-medium text-gray-700 cursor-pointer select-none">
-                Eu concordo com o uso dos meus dados para inscrição no evento, em conformidade com a LGPD (Lei Geral de Proteção de Dados, nº 13.709/2018) e demais utilizações apenas relacionadas ao evento. <span className="text-red-500 font-bold">*</span>
-              </label>
+              <label htmlFor="lgpd" className="font-medium text-gray-700 cursor-pointer select-none">Eu concordo com o uso dos meus dados para inscrição no evento, em conformidade com a LGPD (Lei Geral de Proteção de Dados, nº 13.709/2018) e demais utilizações apenas relacionadas ao evento. <span className="text-red-500 font-bold">*</span></label>
               {errors.aceite_lgpd && <p className="text-red-500 text-xs mt-1.5 font-bold">{errors.aceite_lgpd.message}</p>}
             </div>
           </div>
-
           <div className="flex items-start gap-3 p-4 bg-gray-50 border-2 border-gray-200 rounded-xl transition-colors hover:bg-gray-100">
             <div className="flex items-center h-5 mt-0.5">
-              <input
-                id="imagem"
-                type="checkbox"
-                {...register('aceite_imagem')}
-                className="w-5 h-5 text-blue-600 bg-white border-2 border-gray-400 rounded focus:ring-blue-500 cursor-pointer"
-              />
+              <input id="imagem" type="checkbox" {...register('aceite_imagem')} className="w-5 h-5 text-blue-600 bg-white border-2 border-gray-400 rounded focus:ring-blue-500 cursor-pointer" />
             </div>
             <div className="text-sm">
-              <label htmlFor="imagem" className="font-medium text-gray-700 cursor-pointer select-none">
-                Eu concordo com o uso da minha imagem para registros do evento e futuras artes de divulgação de ações similares. <span className="text-red-500 font-bold">*</span>
-              </label>
+              <label htmlFor="imagem" className="font-medium text-gray-700 cursor-pointer select-none">Eu concordo com o uso da minha imagem para registros do evento e futuras artes de divulgação de ações similares. <span className="text-red-500 font-bold">*</span></label>
               {errors.aceite_imagem && <p className="text-red-500 text-xs mt-1.5 font-bold">{errors.aceite_imagem.message}</p>}
             </div>
           </div>
