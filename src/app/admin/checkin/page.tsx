@@ -136,7 +136,8 @@ export default function CheckinPage() {
         </div>
 
         {/* Leitor de Câmera */}
-        <div className="rounded-2xl overflow-hidden bg-black mb-6">
+        {/* Leitor de Câmera */}
+<div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-4 mb-6">
           {scannerLoadError ? (
             <div className="p-8 text-center text-red-500 font-bold">Erro ao acessar a câmera. Verifique as permissões do navegador.</div>
           ) : (
