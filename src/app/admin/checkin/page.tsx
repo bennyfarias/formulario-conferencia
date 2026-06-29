@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { CheckCircle2, AlertTriangle, Loader2, ScanLine } from 'lucide-react';
 
@@ -10,21 +10,24 @@ export default function CheckinPage() {
   const [mensagem, setMensagem] = useState('');
   const [nomePessoa, setNomePessoa] = useState('');
   
-  // Evitar leitura do mesmo crachá 2 vezes seguidas num espaço de 3 segundos
-  const [lastScanned, setLastScanned] = useState<string | null>(null);
+  // REFERÊNCIAS MÁGICAS PARA TRAVAR A METRALHADORA DA CÂMERA
+  const scannerRef = useRef<any>(null);
+  const isProcessing = useRef(false);
 
   useEffect(() => {
     let html5QrcodeScanner: any = null;
 
-    // Import dinâmico para evitar erro de servidor (Next.js SSR)
     import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
       html5QrcodeScanner = new Html5QrcodeScanner(
         "reader",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        // Reduzimos o FPS de 10 para 5 para ser mais suave
+        { fps: 5, qrbox: { width: 250, height: 250 } },
         false
       );
-
+      
+      scannerRef.current = html5QrcodeScanner;
       html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+      
     }).catch(err => {
       console.error(err);
       setScannerLoadError(true);
@@ -38,13 +41,17 @@ export default function CheckinPage() {
   }, []);
 
   const onScanSuccess = async (decodedText: string) => {
-    // Bloqueia leituras duplicadas rápidas
-    if (decodedText === lastScanned || scanningStatus === 'loading') return;
+    // 1. TRAVA IMEDIATA: Se já estiver processando, ignora todas as outras leituras
+    if (isProcessing.current) return;
+    isProcessing.current = true;
     
-    setLastScanned(decodedText);
+    // 2. PAUSA A CÂMERA VISUALMENTE
+    if (scannerRef.current) {
+      try { scannerRef.current.pause(true); } catch(e) {}
+    }
+
     setScanningStatus('loading');
     
-    // O QRCode é formatado como: tipo|ID (ex: titular|a1b2-c3d4...)
     const partes = decodedText.split('|');
     if (partes.length !== 2) {
       exibirErro("QR Code Inválido ou não pertence a este evento.");
@@ -55,41 +62,42 @@ export default function CheckinPage() {
     const id = partes[1];
 
     try {
-      // 1. Puxar nome para mostrar na tela e verificar pagamento
       let nomeEncontrado = '';
       
+      // Busca o nome do dono do Crachá
       if (tipo === 'titular') {
         const { data: inscricao, error } = await supabase.from('inscricoes').select('nome_titular, status_pagamento').eq('id', id).single();
         if (error || !inscricao) throw new Error("Inscrição não encontrada.");
-        if (inscricao.status_pagamento !== 'confirmado') throw new Error("Pagamento não confirmado para esta pessoa.");
+        if (inscricao.status_pagamento !== 'confirmado') throw new Error("Atenção: Pagamento Pendente!");
         nomeEncontrado = inscricao.nome_titular;
       } else {
-        // Acompanhante - precisa checar a inscrição atrelada a ele
-        const { data: acompanhante, error } = await supabase.from('participantes').select('nome_completo, inscricao_id, inscricoes(status_pagamento)').eq('id', id).single();
+        const { data: acompanhante, error } = await supabase.from('participantes').select('nome_completo, inscricoes(status_pagamento)').eq('id', id).single();
         if (error || !acompanhante) throw new Error("Participante não encontrado.");
-        if ((acompanhante.inscricoes as any).status_pagamento !== 'confirmado') throw new Error("Pagamento não confirmado para o titular deste acompanhante.");
+        if ((acompanhante.inscricoes as any).status_pagamento !== 'confirmado') throw new Error("Atenção: Pagamento do Titular Pendente!");
         nomeEncontrado = acompanhante.nome_completo;
       }
 
       setNomePessoa(nomeEncontrado);
 
-      // 2. Verificar se já fez check-in hoje
-      const hojeInicio = new Date();
-      hojeInicio.setHours(0, 0, 0, 0);
+      // LÓGICA DE DATAS BLINDADA: Garante que a pessoa pode fazer 1 check-in POR DIA civil
+      const agora = new Date();
+      const hojeInicio = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 0, 0, 0).toISOString();
+      const hojeFim = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 23, 59, 59).toISOString();
       
       const { data: presencaExiste } = await supabase
         .from('presencas')
         .select('id')
         .eq('participante_id', id)
-        .gte('data_checkin', hojeInicio.toISOString())
+        .gte('data_checkin', hojeInicio) // A partir de meia-noite de hoje
+        .lte('data_checkin', hojeFim)    // Até 23:59 de hoje
         .limit(1);
 
       if (presencaExiste && presencaExiste.length > 0) {
-        exibirErro("ATENÇÃO: Este crachá já fez check-in hoje.");
+        exibirErro("ESTE CRACHÁ JÁ FEZ CHECK-IN HOJE!");
         return;
       }
 
-      // 3. Registrar Presença
+      // 3. Salvar a presença UMA ÚNICA VEZ
       const { error: erroInsert } = await supabase.from('presencas').insert([{
         tipo_participante: tipo,
         participante_id: id
@@ -97,15 +105,18 @@ export default function CheckinPage() {
 
       if (erroInsert) throw erroInsert;
 
-      // SUCESSO
+      // SUCESSO! Fica verde na tela
       setMensagem("Entrada Liberada!");
       setScanningStatus('success');
 
-      // Limpa a tela após 3 segundos
+      // Limpa a tela e volta a câmera ao normal após 2.5 segundos
       setTimeout(() => {
         setScanningStatus('idle');
-        setLastScanned(null);
-      }, 3000);
+        isProcessing.current = false; // Destrava
+        if (scannerRef.current) {
+          try { scannerRef.current.resume(); } catch(e) {} // Liga a câmera
+        }
+      }, 2500);
 
     } catch (error: any) {
       exibirErro(error.message);
@@ -113,7 +124,7 @@ export default function CheckinPage() {
   };
 
   const onScanFailure = (error: any) => {
-    // Falhas de leitura contínuas são normais enquanto a câmera tenta focar. Não fazemos nada.
+    // Silencia os avisos da câmera tentando focar
   };
 
   const exibirErro = (msg: string) => {
@@ -121,8 +132,11 @@ export default function CheckinPage() {
     setScanningStatus('error');
     setTimeout(() => {
       setScanningStatus('idle');
-      setLastScanned(null);
-    }, 4000);
+      isProcessing.current = false; // Destrava
+      if (scannerRef.current) {
+        try { scannerRef.current.resume(); } catch(e) {} // Liga a câmera
+      }
+    }, 3000);
   };
 
   return (
@@ -135,9 +149,8 @@ export default function CheckinPage() {
           <p className="text-gray-500 text-sm">Posicione o crachá na frente da câmera.</p>
         </div>
 
-        {/* Leitor de Câmera */}
-        {/* Leitor de Câmera */}
-<div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-4 mb-6">
+        {/* Leitor de Câmera com Fundo Branco (Evita sumir o botão) */}
+        <div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-2 mb-6">
           {scannerLoadError ? (
             <div className="p-8 text-center text-red-500 font-bold">Erro ao acessar a câmera. Verifique as permissões do navegador.</div>
           ) : (
