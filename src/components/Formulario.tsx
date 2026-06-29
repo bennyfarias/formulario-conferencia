@@ -162,7 +162,6 @@ export default function Formulario() {
     );
   }
 
-  // TELA DE ESGOTADO (SÓ APARECE SE PASSAR DO 3º LOTE)
   if (vagasEsgotadas) {
     return (
       <div className="max-w-2xl mx-auto mt-12 p-12 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-900 text-center animate-in fade-in duration-500">
