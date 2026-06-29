@@ -128,9 +128,11 @@ export default function CrachasPage() {
 
             {/* Conteúdo */}
             <div
-              className="flex flex-1 items-center justify-between"
-              style={{
-                padding: '2mm',
+             className="flex flex-1 items-center"
+  style={{
+    padding: "2mm",
+    background: "#fff",
+    color: "#000",
               }}
             >
 
@@ -172,17 +174,18 @@ export default function CrachasPage() {
               {/* QRCode */}
               <div
                 style={{
-                  width: '32%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
+                  width: "2.1cm",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      flexShrink: 0,
                 }}
               >
                 <QRCodeSVG
-                  value={`${c.tipo}|${c.id}`}
-                  size={58}
-                  level="H"
-                  includeMargin={false}
+                   value={`${c.tipo}|${c.id}`}
+      size={72}
+      level="H"
+      includeMargin={false}
                 />
               </div>
 
