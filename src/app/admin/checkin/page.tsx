@@ -146,11 +146,11 @@ export default function CheckinPage() {
         <div className="text-center mb-6">
           <ScanLine className="w-12 h-12 text-black mx-auto mb-2" />
           <h1 className="text-2xl font-black text-black">Portaria Rápida</h1>
-          <p className="text-gray-500 text-sm">Posicione o crachá na frente da câmera.</p>
+          <p className="text-gray-500 text-sm mt-1">Para começar, clique no botão azul abaixo e libere a câmera do seu celular.</p>
         </div>
 
-        {/* Leitor de Câmera com Fundo Branco (Evita sumir o botão) */}
-        <div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-2 mb-6">
+        {/* Leitor de Câmera com Fundo Branco */}
+        <div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-4 mb-6 relative">
           {scannerLoadError ? (
             <div className="p-8 text-center text-red-500 font-bold">Erro ao acessar a câmera. Verifique as permissões do navegador.</div>
           ) : (
@@ -192,6 +192,48 @@ export default function CheckinPage() {
 
         </div>
       </div>
+
+      {/* ESTILOS FORÇADOS PARA OS BOTÕES NATIVOS DA BIBLIOTECA */}
+      <style dangerouslySetInnerHTML={{__html: `
+        /* Oculta o link inútil de escanear imagem */
+        #html5-qrcode-anchor-scan-type-change {
+          display: none !important;
+        }
+
+        /* Estiliza o botão principal de pedir permissão */
+        #html5-qrcode-button-camera-permission {
+          background-color: #000000 !important; /* Azul escuro */
+          color: white !important;
+          font-weight: 900 !important;
+          padding: 14px 24px !important;
+          border-radius: 12px !important;
+          border: none !important;
+          font-size: 16px !important;
+          cursor: pointer !important;
+          width: 100% !important;
+          margin-top: 10px !important;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+          text-transform: uppercase !important;
+        }
+
+        /* Estiliza os botões secundários de start/stop da câmera */
+        #html5-qrcode-button-camera-start,
+        #html5-qrcode-button-camera-stop {
+          background-color: #111827 !important; /* Preto */
+          color: white !important;
+          font-weight: 800 !important;
+          padding: 10px 20px !important;
+          border-radius: 8px !important;
+          border: none !important;
+          margin: 5px !important;
+          cursor: pointer !important;
+        }
+
+        /* Melhora o visual da caixa do vídeo */
+        #reader video {
+          border-radius: 12px !important;
+        }
+      `}} />
     </div>
   );
 }
