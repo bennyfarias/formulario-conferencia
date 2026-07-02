@@ -16,7 +16,7 @@ const LABEL_HEIGHT = 25.4; // mm
 
 // Ajuste Fino Padrão de Fábrica (Colacril / Pimaco 6180)
 const MARGIN_TOP = 8.8; // mm (Distância exata do topo)
-const MARGIN_LEFT = 7.2; // mm (Distância exata da esquerda - se a sua tiver 1cm exato, mude para 10)
+const MARGIN_LEFT = 7.2; // mm (Distância exata da esquerda)
 const GAP_X = 2.5; // mm (Espaço horizontal entre as etiquetas)
 const GAP_Y = 0; // mm (Espaço vertical)
 
@@ -67,7 +67,36 @@ export default function CrachasPage() {
         });
       });
 
-      listaCrachas.sort((a, b) => a.nome.localeCompare(b.nome));
+      // ==========================================
+      // ORDENAÇÃO CUSTOMIZADA POR PRIORIDADE DA IGREJA
+      // ==========================================
+      const ordemIgrejas: Record<string, number> = {
+        'PIPR': 1,
+        '2IPBV': 2,
+        '3IPBV': 3,
+        '4IPBV': 4,
+        '5IPBV': 5,
+        '6IPBV': 6
+      };
+
+      listaCrachas.sort((a, b) => {
+        const igrejaA = a.igreja.trim().toUpperCase();
+        const igrejaB = b.igreja.trim().toUpperCase();
+
+        const pesoA = ordemIgrejas[igrejaA] || 99;
+        const pesoB = ordemIgrejas[igrejaB] || 99;
+
+        if (pesoA !== pesoB) {
+          return pesoA - pesoB;
+        }
+
+        if (pesoA === 99 && igrejaA !== igrejaB) {
+          return igrejaA.localeCompare(igrejaB, 'pt-BR');
+        }
+
+        return a.nome.localeCompare(b.nome, 'pt-BR');
+      });
+
       setCrachas(listaCrachas);
       setLoading(false);
     }
@@ -135,97 +164,94 @@ export default function CrachasPage() {
                   width: `${LABEL_WIDTH}mm`,
                   height: `${LABEL_HEIGHT}mm`,
                   boxSizing: 'border-box',
-                  overflow: 'hidden',
+                  // PADDING AJUSTADO: Empurra 4mm da esquerda para o QR Code não ficar na beirada
+                  padding: '2mm 2mm 2mm 4mm', 
+                  display: 'flex',
+                  alignItems: 'center',
                   background: '#fff',
                   pageBreakInside: 'avoid',
                   breakInside: 'avoid',
-                  display: 'flex',
-                  flexDirection: 'column',
+                  overflow: 'hidden',
                 }}
               >
-                {/* Tira Preta no Topo da Etiqueta */}
+                {/* QR Code */}
                 <div
                   style={{
-                    background: '#000',
-                    color: '#fff',
-                    textAlign: 'center',
-                    fontWeight: 900,
-                    fontSize: '6.5px', // Reduzido levemente para encaixar perfeito
-                    padding: '1mm',
-                    height: '4mm',
+                    width: '17mm',
+                    flexShrink: 0,
                     display: 'flex',
-                    alignItems: 'center',
                     justifyContent: 'center',
+                    alignItems: 'center',
                   }}
                 >
-                  FÉ REFORMADA 2026
+                  <QRCodeSVG
+                    value={`${c.tipo}|${c.id}`}
+                    size={52} 
+                    level="L"
+                    includeMargin={false}
+                  />
                 </div>
 
-                {/* Área Branca (QR Code + Texto) */}
+                {/* Informações (Nome e Igreja) */}
                 <div
                   style={{
                     flex: 1,
+                    paddingLeft: '3mm',
+                    color: '#000',
                     display: 'flex',
-                    alignItems: 'center',
-                    padding: '1mm',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
                   }}
                 >
-                  {/* QR Code */}
+                  {/* Título do Evento (Substitui a Tira Preta) */}
                   <div
                     style={{
-                      width: '18mm',
-                      display: 'flex',
-                      justifyContent: 'center',
-                      alignItems: 'center',
+                      fontSize: '6px',
+                      fontWeight: 800,
+                      color: '#666',
+                      marginBottom: '1mm',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
                     }}
                   >
-                    <QRCodeSVG
-                      value={`${c.tipo}|${c.id}`}
-                      size={55} // Ajustado para não estourar o limite de 25mm de altura
-                      level="L"
-                      includeMargin={false}
-                    />
+                    Fé Reformada 2026
                   </div>
 
-                  {/* Informações (Nome e Igreja) */}
+                  {/* Nome do Participante (MAX 2 LINHAS) */}
                   <div
                     style={{
-                      flex: 1,
-                      paddingLeft: '2mm',
-                      color: '#000',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
+                      fontWeight: 900,
+                      fontSize: '9.5px',
+                      lineHeight: '10.5px',
+                      textTransform: 'uppercase',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
                     }}
                   >
-                    <div
-                      style={{
-                        fontWeight: 900,
-                        fontSize: '10px',
-                        lineHeight: '10px',
-                        textTransform: 'uppercase',
-                        wordBreak: 'break-word',
-                        maxHeight: '20px',
-                        overflow: 'hidden'
-                      }}
-                    >
-                      {c.nome}
-                    </div>
+                    {c.nome}
+                  </div>
 
-                    <div
-                      style={{
-                        marginTop: '1.5mm',
-                        fontSize: '7.5px',
-                        lineHeight: '8px',
-                        color: '#444',
-                        fontWeight: 700,
-                        wordBreak: 'break-word',
-                        maxHeight: '16px',
-                        overflow: 'hidden'
-                      }}
-                    >
-                      {c.igreja}
-                    </div>
+                  {/* Nome da Igreja (MAX 2 LINHAS, FONTE MAIOR) */}
+                  <div
+                    style={{
+                      marginTop: '1.5mm',
+                      fontSize: '8px',
+                      lineHeight: '9px',
+                      color: '#333',
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}
+                  >
+                    {c.igreja}
                   </div>
                 </div>
               </div>
@@ -237,7 +263,7 @@ export default function CrachasPage() {
       <style jsx global>{`
         @page {
           size: A4 portrait;
-          margin: 0 !important; /* Força a zerar a margem nativa do navegador */
+          margin: 0 !important;
         }
 
         @media print {
