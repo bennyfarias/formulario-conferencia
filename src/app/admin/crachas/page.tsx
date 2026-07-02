@@ -14,12 +14,11 @@ const LABELS_PER_PAGE = COLS * ROWS; // 33
 const LABEL_WIDTH = 63.5; // mm
 const LABEL_HEIGHT = 25.4; // mm
 
-// Ajuste fino (mm) — faça 1 teste de impressão em papel comum, sobreponha
-// na folha de etiqueta real contra a luz e corrija estes valores se precisar.
-const MARGIN_TOP = 13.5; // distância do topo da folha até a 1ª linha
-const MARGIN_LEFT = 7.2; // distância da esquerda da folha até a 1ª coluna
-const GAP_X = 2.5; // espaço horizontal entre colunas
-const GAP_Y = 0; // espaço vertical entre linhas (geralmente 0 nessa folha)
+// Ajuste Fino Padrão de Fábrica (Colacril / Pimaco 6180)
+const MARGIN_TOP = 8.8; // mm (Distância exata do topo)
+const MARGIN_LEFT = 7.2; // mm (Distância exata da esquerda - se a sua tiver 1cm exato, mude para 10)
+const GAP_X = 2.5; // mm (Espaço horizontal entre as etiquetas)
+const GAP_Y = 0; // mm (Espaço vertical)
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -87,10 +86,10 @@ export default function CrachasPage() {
   const paginas = chunk(crachas, LABELS_PER_PAGE);
 
   return (
-    <div className="min-h-screen bg-gray-200 p-6">
+    <div className="min-h-screen bg-gray-200 p-6 print:p-0 print:bg-white">
       <div className="max-w-6xl mx-auto mb-6 flex justify-between items-center bg-white rounded-xl shadow p-6 print:hidden">
         <div>
-          <h1 className="text-3xl font-black text-black">Gerador de Etiquetas</h1>
+          <h1 className="text-3xl font-black text-black">Gerador de Etiquetas (Colacril)</h1>
           <p className="text-gray-600">
             Total: <strong>{crachas.length}</strong> | Folhas: <strong>{paginas.length}</strong> (33 por folha)
           </p>
@@ -98,10 +97,10 @@ export default function CrachasPage() {
 
         <button
           onClick={() => window.print()}
-          className="flex items-center gap-2 px-5 py-3 bg-black text-white rounded-xl"
+          className="flex items-center gap-2 px-5 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors"
         >
           <Printer size={20} />
-          Imprimir
+          Imprimir Folhas
         </button>
       </div>
 
@@ -112,7 +111,7 @@ export default function CrachasPage() {
           style={{
             width: '210mm',
             height: '297mm',
-            margin: '0 auto 8mm auto',
+            margin: '0 auto',
             background: '#fff',
             position: 'relative',
             boxSizing: 'border-box',
@@ -144,30 +143,37 @@ export default function CrachasPage() {
                   flexDirection: 'column',
                 }}
               >
+                {/* Tira Preta no Topo da Etiqueta */}
                 <div
                   style={{
                     background: '#000',
                     color: '#fff',
                     textAlign: 'center',
-                    fontWeight: 700,
-                    fontSize: '7px',
-                    padding: '1.2mm',
+                    fontWeight: 900,
+                    fontSize: '6.5px', // Reduzido levemente para encaixar perfeito
+                    padding: '1mm',
+                    height: '4mm',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   FÉ REFORMADA 2026
                 </div>
 
+                {/* Área Branca (QR Code + Texto) */}
                 <div
                   style={{
                     flex: 1,
                     display: 'flex',
                     alignItems: 'center',
-                    padding: '1.5mm',
+                    padding: '1mm',
                   }}
                 >
+                  {/* QR Code */}
                   <div
                     style={{
-                      width: '20mm',
+                      width: '18mm',
                       display: 'flex',
                       justifyContent: 'center',
                       alignItems: 'center',
@@ -175,26 +181,32 @@ export default function CrachasPage() {
                   >
                     <QRCodeSVG
                       value={`${c.tipo}|${c.id}`}
-                      size={70}
-                      level="H"
+                      size={55} // Ajustado para não estourar o limite de 25mm de altura
+                      level="L"
                       includeMargin={false}
                     />
                   </div>
 
+                  {/* Informações (Nome e Igreja) */}
                   <div
                     style={{
                       flex: 1,
                       paddingLeft: '2mm',
                       color: '#000',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center',
                     }}
                   >
                     <div
                       style={{
                         fontWeight: 900,
-                        fontSize: '11px',
-                        lineHeight: '12px',
+                        fontSize: '10px',
+                        lineHeight: '10px',
                         textTransform: 'uppercase',
                         wordBreak: 'break-word',
+                        maxHeight: '20px',
+                        overflow: 'hidden'
                       }}
                     >
                       {c.nome}
@@ -202,11 +214,14 @@ export default function CrachasPage() {
 
                     <div
                       style={{
-                        marginTop: '2mm',
-                        fontSize: '8px',
-                        lineHeight: '9px',
+                        marginTop: '1.5mm',
+                        fontSize: '7.5px',
+                        lineHeight: '8px',
                         color: '#444',
+                        fontWeight: 700,
                         wordBreak: 'break-word',
+                        maxHeight: '16px',
+                        overflow: 'hidden'
                       }}
                     >
                       {c.igreja}
@@ -222,15 +237,17 @@ export default function CrachasPage() {
       <style jsx global>{`
         @page {
           size: A4 portrait;
-          margin: 0;
+          margin: 0 !important; /* Força a zerar a margem nativa do navegador */
         }
 
         @media print {
           html,
           body {
             background: #fff !important;
-            margin: 0;
-            padding: 0;
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
 
           .print\\:hidden {
@@ -239,6 +256,7 @@ export default function CrachasPage() {
 
           .folha {
             margin: 0 !important;
+            box-shadow: none !important;
             page-break-after: always;
             break-after: page;
           }
