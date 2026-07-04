@@ -202,7 +202,7 @@ export default function CheckinPage() {
 
         /* Estiliza o botão principal de pedir permissão */
         #html5-qrcode-button-camera-permission {
-          background-color: #000000 !important; /* Azul escuro */
+          background-color: #141adfff !important; /* Azul escuro */
           color: white !important;
           font-weight: 900 !important;
           padding: 14px 24px !important;
