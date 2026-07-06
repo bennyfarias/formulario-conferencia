@@ -14,9 +14,9 @@ const CAPACIDADE_LOTE_2 = 188;
 const CAPACIDADE_LOTE_3 = 156;
 
 // ==========================================
-// LINHA DE CORTE DO LOTE EXTRA (Mantém o histórico seguro)
+// LINHA DE CORTE DO LOTE EXTRA (Para separar as 20 vagas)
 // ==========================================
-const DATA_CORTE_LOTE_EXTRA = '2026-07-05T22:00:00.000Z'; 
+const DATA_CORTE_LOTE_EXTRA = '2026-07-05T00:00:00.000Z'; 
 
 export default function AdminDashboard() {
   const [inscricoes, setInscricoes] = useState<any[]>([]);
@@ -25,7 +25,7 @@ export default function AdminDashboard() {
   const [enviandoEmail, setEnviandoEmail] = useState(false);
   const [filtro, setFiltro] = useState('');
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'pendente' | 'confirmado'>('todos');
-  const [filtroLoteExtra, setFiltroLoteExtra] = useState(false); // NOVO ESTADO DO LOTE EXTRA
+  const [filtroLoteExtra, setFiltroLoteExtra] = useState(false); // NOVO FILTRO
   
   const [modoEdicao, setModoEdicao] = useState(false);
   const [dadosEditados, setDadosEditados] = useState<any>(null);
@@ -205,7 +205,7 @@ export default function AdminDashboard() {
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/admin/login'); };
 
   // ==========================================
-  // FILTRAGEM INTELIGENTE (Incluindo Lote Extra)
+  // FILTRO INTELIGENTE COM LOTE EXTRA
   // ==========================================
   const filtrados = inscricoes.filter(i => {
     const matchBusca = i.nome_titular.toLowerCase().includes(filtro.toLowerCase());
@@ -217,10 +217,13 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" size={40} /></div>;
 
-  const totalPessoasAbsoluto = inscricoes.filter(i => i.status_pagamento === 'confirmado').reduce((acc, curr) => acc + 1 + (curr.participantes?.length || 0), 0);
-  let loteExibicao = 2; let ocupacaoLote = 0; let limiteLote = CAPACIDADE_LOTE_2;
-  if (totalPessoasAbsoluto < CAPACIDADE_LOTE_1 + CAPACIDADE_LOTE_2) { loteExibicao = 2; limiteLote = CAPACIDADE_LOTE_2; ocupacaoLote = Math.max(0, totalPessoasAbsoluto - CAPACIDADE_LOTE_1); } 
-  else { loteExibicao = 3; limiteLote = CAPACIDADE_LOTE_3; ocupacaoLote = Math.max(0, totalPessoasAbsoluto - (CAPACIDADE_LOTE_1 + CAPACIDADE_LOTE_2)); }
+  // ==========================================
+  // CÁLCULO DE OCUPAÇÃO DO LOTE EXTRA
+  // ==========================================
+  const inscricoesExtra = inscricoes.filter(i => new Date(i.criado_em) >= new Date(DATA_CORTE_LOTE_EXTRA));
+  const ocupacaoLoteExtra = inscricoesExtra.reduce((acc, curr) => acc + 1 + (curr.participantes?.length || 0), 0);
+  const limiteLoteExtra = 20;
+  const porcentagemExtra = Math.min((ocupacaoLoteExtra / limiteLoteExtra) * 100, 100);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-10">
@@ -250,15 +253,30 @@ export default function AdminDashboard() {
           <button type="button" onClick={exportarPresencas} disabled={baixandoPresencas} className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-purple-600 rounded-xl text-sm font-black text-purple-700 hover:bg-purple-50 transition-colors shadow-sm disabled:opacity-50">
             {baixandoPresencas ? <Loader2 size={18} className="animate-spin" /> : <ClipboardCheck size={18} strokeWidth={3} />} Relatório de Presença
           </button>
-          {/* BOTÃO NOVO DO LOTE EXTRA */}
-          <button type="button" onClick={() => setFiltroLoteExtra(!filtroLoteExtra)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black transition-all shadow-sm ${filtroLoteExtra ? 'bg-purple-600 text-white' : 'bg-white border-2 border-purple-600 text-purple-700 hover:bg-purple-50'}`}>
+          
+          {/* BOTÃO DO LOTE EXTRA */}
+          <button type="button" onClick={() => setFiltroLoteExtra(!filtroLoteExtra)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black transition-colors shadow-sm ${filtroLoteExtra ? 'bg-purple-600 text-white' : 'bg-white border-2 border-purple-600 text-purple-700 hover:bg-purple-50'}`}>
             <Sparkles size={18} strokeWidth={3} /> {filtroLoteExtra ? 'Mostrando Lote Extra' : 'Ver Lote Extra (20)'}
           </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm"><div className="flex items-center gap-4"><div className="p-4 bg-green-100 text-green-700 rounded-2xl"><DollarSign size={28} strokeWidth={3}/></div><div><p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Total Confirmado</p><p className="text-3xl font-black text-black">R$ {inscricoes.filter(i => i.status_pagamento === 'confirmado').reduce((acc, curr) => acc + curr.valor_total, 0).toFixed(2)}</p></div></div></div>
-          <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm"><div className="flex items-center gap-4 mb-4"><div className="p-4 bg-blue-100 text-blue-700 rounded-2xl"><Users size={28} strokeWidth={3}/></div><div><p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação ({loteExibicao}º Lote)</p><p className="text-3xl font-black text-black">{ocupacaoLote} / {limiteLote}</p></div></div><div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden"><div className={`h-full ${loteExibicao === 2 ? 'bg-blue-600' : 'bg-purple-600'}`} style={{ width: `${(ocupacaoLote / limiteLote) * 100}%` }}></div></div></div>
+          
+          {/* CARTÃO DE OCUPAÇÃO SUBSTITUÍDO PARA O LOTE EXTRA */}
+          <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="p-4 bg-purple-100 text-purple-700 rounded-2xl"><Users size={28} strokeWidth={3}/></div>
+              <div>
+                <p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Ocupação (Lote Extra)</p>
+                <p className="text-3xl font-black text-black">{ocupacaoLoteExtra} / {limiteLoteExtra}</p>
+              </div>
+            </div>
+            <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
+              <div className="h-full bg-purple-600 transition-all duration-500" style={{ width: `${porcentagemExtra}%` }}></div>
+            </div>
+          </div>
+
           <div className="bg-white p-6 rounded-3xl border-2 border-gray-200 shadow-sm"><div className="flex items-center gap-4"><div className="p-4 bg-orange-100 text-orange-700 rounded-2xl"><Clock size={28} strokeWidth={3}/></div><div><p className="text-sm text-gray-600 font-bold uppercase tracking-wider mb-1">Aguardando Análise</p><p className="text-3xl font-black text-black">{inscricoes.filter(i => i.status_pagamento === 'pendente').length}</p></div></div></div>
         </div>
 
@@ -283,7 +301,7 @@ export default function AdminDashboard() {
                 <tr key={i.id} className="hover:bg-blue-50 transition-colors">
                   <td className="px-8 py-5 font-black text-black text-lg">
                     {i.nome_titular} <span className="text-sm text-gray-500 font-bold ml-2">({i.sexo || '?'})</span>
-                    {/* ETIQUETA ROXA PARA QUEM FOR DO LOTE EXTRA */}
+                    {/* ETIQUETA ROXA PARA LOTE EXTRA */}
                     {new Date(i.criado_em) >= new Date(DATA_CORTE_LOTE_EXTRA) && (
                       <span className="ml-2 inline-block bg-purple-100 text-purple-700 text-[10px] px-2 py-1 rounded-md uppercase tracking-widest font-black align-middle">Lote Extra</span>
                     )}
