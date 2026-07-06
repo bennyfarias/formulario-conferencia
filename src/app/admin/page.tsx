@@ -6,12 +6,17 @@ import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 import { 
-  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus, Printer, ScanLine, ClipboardCheck
+  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus, Printer, ScanLine, ClipboardCheck, Sparkles
 } from 'lucide-react';
 
 const CAPACIDADE_LOTE_1 = 302;
 const CAPACIDADE_LOTE_2 = 188;
 const CAPACIDADE_LOTE_3 = 156;
+
+// ==========================================
+// LINHA DE CORTE DO LOTE EXTRA (Mantém o histórico seguro)
+// ==========================================
+const DATA_CORTE_LOTE_EXTRA = '2026-07-05T22:00:00.000Z'; 
 
 export default function AdminDashboard() {
   const [inscricoes, setInscricoes] = useState<any[]>([]);
@@ -20,6 +25,7 @@ export default function AdminDashboard() {
   const [enviandoEmail, setEnviandoEmail] = useState(false);
   const [filtro, setFiltro] = useState('');
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'pendente' | 'confirmado'>('todos');
+  const [filtroLoteExtra, setFiltroLoteExtra] = useState(false); // NOVO ESTADO DO LOTE EXTRA
   
   const [modoEdicao, setModoEdicao] = useState(false);
   const [dadosEditados, setDadosEditados] = useState<any>(null);
@@ -198,10 +204,15 @@ export default function AdminDashboard() {
   const fecharModal = () => { setAnalisando(null); setModoEdicao(false); setNovoComprovante(null); };
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/admin/login'); };
 
+  // ==========================================
+  // FILTRAGEM INTELIGENTE (Incluindo Lote Extra)
+  // ==========================================
   const filtrados = inscricoes.filter(i => {
     const matchBusca = i.nome_titular.toLowerCase().includes(filtro.toLowerCase());
     const matchStatus = statusFiltro === 'todos' || i.status_pagamento === statusFiltro;
-    return matchBusca && matchStatus;
+    const isExtra = new Date(i.criado_em) >= new Date(DATA_CORTE_LOTE_EXTRA);
+    const matchExtra = filtroLoteExtra ? isExtra : true;
+    return matchBusca && matchStatus && matchExtra;
   });
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" size={40} /></div>;
@@ -239,6 +250,10 @@ export default function AdminDashboard() {
           <button type="button" onClick={exportarPresencas} disabled={baixandoPresencas} className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-purple-600 rounded-xl text-sm font-black text-purple-700 hover:bg-purple-50 transition-colors shadow-sm disabled:opacity-50">
             {baixandoPresencas ? <Loader2 size={18} className="animate-spin" /> : <ClipboardCheck size={18} strokeWidth={3} />} Relatório de Presença
           </button>
+          {/* BOTÃO NOVO DO LOTE EXTRA */}
+          <button type="button" onClick={() => setFiltroLoteExtra(!filtroLoteExtra)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black transition-all shadow-sm ${filtroLoteExtra ? 'bg-purple-600 text-white' : 'bg-white border-2 border-purple-600 text-purple-700 hover:bg-purple-50'}`}>
+            <Sparkles size={18} strokeWidth={3} /> {filtroLoteExtra ? 'Mostrando Lote Extra' : 'Ver Lote Extra (20)'}
+          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
@@ -266,7 +281,13 @@ export default function AdminDashboard() {
             <tbody className="divide-y-2 divide-gray-100">
               {filtrados.map(i => (
                 <tr key={i.id} className="hover:bg-blue-50 transition-colors">
-                  <td className="px-8 py-5 font-black text-black text-lg">{i.nome_titular} <span className="text-sm text-gray-500 font-bold ml-2">({i.sexo || '?'})</span></td>
+                  <td className="px-8 py-5 font-black text-black text-lg">
+                    {i.nome_titular} <span className="text-sm text-gray-500 font-bold ml-2">({i.sexo || '?'})</span>
+                    {/* ETIQUETA ROXA PARA QUEM FOR DO LOTE EXTRA */}
+                    {new Date(i.criado_em) >= new Date(DATA_CORTE_LOTE_EXTRA) && (
+                      <span className="ml-2 inline-block bg-purple-100 text-purple-700 text-[10px] px-2 py-1 rounded-md uppercase tracking-widest font-black align-middle">Lote Extra</span>
+                    )}
+                  </td>
                   <td className="px-8 py-5 text-gray-700 font-bold">{i.igreja === 'Outras' ? i.outra_igreja : i.igreja}</td>
                   <td className="px-8 py-5 text-center"><span className={`px-4 py-2 rounded-lg text-xs font-black uppercase ${i.status_pagamento === 'confirmado' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>{i.status_pagamento}</span></td>
                   <td className="px-8 py-5 text-right"><button type="button" onClick={() => setAnalisando(i)} className="px-6 py-2.5 bg-black text-white text-sm font-black rounded-xl hover:bg-blue-700 transition-all shadow-md">Analisar</button></td>
