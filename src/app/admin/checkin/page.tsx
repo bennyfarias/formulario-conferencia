@@ -146,17 +146,22 @@ export default function CheckinPage() {
         <div className="text-center mb-6">
           <ScanLine className="w-12 h-12 text-black mx-auto mb-2" />
           <h1 className="text-2xl font-black text-black">Portaria Rápida</h1>
-          <p className="text-gray-500 text-sm mt-1">Para começar, clique no botão azul abaixo e libere a câmera do seu celular.</p>
+          <p className="text-gray-500 text-sm mt-1">Para começar, libere a câmera do celular.</p>
         </div>
 
         {/* Leitor de Câmera com Fundo Branco */}
-        <div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-4 mb-6 relative">
+        <div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-4 mb-2 relative">
           {scannerLoadError ? (
             <div className="p-8 text-center text-red-500 font-bold">Erro ao acessar a câmera. Verifique as permissões do navegador.</div>
           ) : (
             <div id="reader" className="w-full border-none"></div>
           )}
         </div>
+        
+        {/* Aviso Instrucional de como trocar a câmera */}
+        <p className="text-center text-red-600 text-[11px] font-black uppercase tracking-wider mb-6">
+          ⚠️ Para trocar de câmera, clique em <span className="bg-black text-white px-1.5 py-0.5 rounded">STOP</span> primeiro!
+        </p>
 
         {/* Painel de Mensagens de Status */}
         <div className={`rounded-xl p-6 text-center transition-all min-h-[140px] flex flex-col items-center justify-center
@@ -205,15 +210,30 @@ export default function CheckinPage() {
           width: 100% !important;
           padding: 12px 16px !important;
           margin-bottom: 12px !important;
-          border: 2px solid #111827 !important; /* border-gray-900 */
+          border: 2px solid #111827 !important;
           border-radius: 12px !important;
           font-weight: 800 !important;
           font-size: 14px !important;
           color: #111827 !important;
-          background-color: #f3f4f6 !important; /* bg-gray-100 */
+          background-color: #f3f4f6 !important;
           cursor: pointer !important;
           outline: none !important;
-          appearance: auto !important;
+        }
+
+        /* O SEGREDO: Fica cinza quando não pode clicar (Enquanto a câmera grava) */
+        #html5-qrcode-select-camera:disabled {
+          background-color: #e5e7eb !important;
+          color: #9ca3af !important;
+          border-color: #d1d5db !important;
+          cursor: not-allowed !important;
+          opacity: 0.7 !important;
+        }
+
+        /* Cor do texto de dentro das opções */
+        #html5-qrcode-select-camera option {
+          color: #000 !important;
+          background-color: #fff !important;
+          font-weight: bold !important;
         }
 
         /* Estiliza o botão principal de pedir permissão */
