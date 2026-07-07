@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { QRCodeSVG } from 'qrcode.react';
-import { Loader2, Printer, Search, Filter, Sparkles, Plus, Trash2, CheckCircle2, ListChecks } from 'lucide-react';
+import { Loader2, Printer, Search, Filter, Sparkles, Trash2, ListChecks, ArrowDownAZ, Plus, X } from 'lucide-react';
 
 // ===== CONFIGURAÇÃO DA FOLHA COLACRIL A4256 =====
 const COLS = 3;
@@ -33,6 +33,7 @@ export default function CrachasPage() {
   const [filtroIgreja, setFiltroIgreja] = useState('');
   const [filtroNome, setFiltroNome] = useState('');
   const [somenteLoteExtra, setSomenteLoteExtra] = useState(false);
+  const [ordenacao, setOrdenacao] = useState<'igreja' | 'alfabetica'>('igreja'); // NOVO FILTRO DE ORDEM
   
   // FILA DE IMPRESSÃO (Seleção Manual)
   const [selecionados, setSelecionados] = useState<string[]>([]);
@@ -47,7 +48,7 @@ export default function CrachasPage() {
         const isExtra = new Date(inscricao.criado_em) >= new Date(DATA_CORTE_LOTE_EXTRA);
         const igrejaNome = inscricao.igreja === 'Outras' ? inscricao.outra_igreja : inscricao.igreja;
 
-        // Adiciona Titular (Gerando um UID único)
+        // Adiciona Titular (Gerando um UID único robusto)
         listaCrachas.push({ uid: `titular-${inscricao.id}`, id: inscricao.id, tipo: 'titular', nome: inscricao.nome_titular, igreja: igrejaNome, isExtra });
         
         // Adiciona Acompanhantes
@@ -56,47 +57,58 @@ export default function CrachasPage() {
         });
       });
 
-      // ORDENAÇÃO: Fila VIP
-      const ordemIgrejas: Record<string, number> = { 'PIPR': 1, '2IPBV': 2, '3IPBV': 3, '4IPBV': 4, '5IPBV': 5, '6IPBV': 6 };
-      listaCrachas.sort((a, b) => {
-        const pesoA = ordemIgrejas[a.igreja.trim().toUpperCase()] || 99;
-        const pesoB = ordemIgrejas[b.igreja.trim().toUpperCase()] || 99;
-        if (pesoA !== pesoB) return pesoA - pesoB;
-        if (pesoA === 99 && a.igreja !== b.igreja) return a.igreja.localeCompare(b.igreja, 'pt-BR');
-        return a.nome.localeCompare(b.nome, 'pt-BR');
-      });
-
-      setCrachas(listaCrachas); setLoading(false);
+      setCrachas(listaCrachas); 
+      setLoading(false);
     }
     carregarCrachas();
   }, []);
 
   const igrejasDisponiveis = useMemo(() => Array.from(new Set(crachas.map(c => c.igreja))).sort(), [crachas]);
 
-  // Aplica os filtros gerais da busca
+  // Função central para ordenar qualquer lista de crachás
+  const ordenarLista = (lista: any[]) => {
+    const copia = [...lista];
+    if (ordenacao === 'alfabetica') {
+      // Ordem A-Z pura, ignorando Igreja
+      return copia.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    } else {
+      // Ordem VIP por Igreja
+      const ordemIgrejas: Record<string, number> = { 'PIPR': 1, '2IPBV': 2, '3IPBV': 3, '4IPBV': 4, '5IPBV': 5, '6IPBV': 6 };
+      return copia.sort((a, b) => {
+        const pesoA = ordemIgrejas[a.igreja.trim().toUpperCase()] || 99;
+        const pesoB = ordemIgrejas[b.igreja.trim().toUpperCase()] || 99;
+        if (pesoA !== pesoB) return pesoA - pesoB;
+        if (pesoA === 99 && a.igreja !== b.igreja) return a.igreja.localeCompare(b.igreja, 'pt-BR');
+        return a.nome.localeCompare(b.nome, 'pt-BR');
+      });
+    }
+  };
+
+  // Aplica os filtros gerais da busca e ordena
   const crachasFiltrados = useMemo(() => {
-    return crachas.filter(c => {
+    const filtrado = crachas.filter(c => {
       const matchIgreja = filtroIgreja === '' || c.igreja === filtroIgreja;
       const matchNome = filtroNome === '' || c.nome.toLowerCase().includes(filtroNome.toLowerCase());
       const matchExtra = somenteLoteExtra ? c.isExtra : true;
       return matchIgreja && matchNome && matchExtra;
     });
-  }, [crachas, filtroIgreja, filtroNome, somenteLoteExtra]);
+    return ordenarLista(filtrado);
+  }, [crachas, filtroIgreja, filtroNome, somenteLoteExtra, ordenacao]);
 
   // Determina quem realmente vai para a folha A4
   const crachasParaImprimir = useMemo(() => {
     if (selecionados.length > 0) {
-      // Se tiver alguém na fila manual, ignora os filtros de busca e imprime só a fila
-      return crachas.filter(c => selecionados.includes(c.uid));
+      // Se tiver alguém na fila manual, imprime só a fila (mantendo a ordenação escolhida)
+      const listaFila = crachas.filter(c => selecionados.includes(c.uid));
+      return ordenarLista(listaFila);
     }
     // Se a fila estiver vazia, imprime todos os resultados do filtro
     return crachasFiltrados;
-  }, [crachas, crachasFiltrados, selecionados]);
+  }, [crachas, crachasFiltrados, selecionados, ordenacao]);
 
   // FUNÇÕES DA FILA MANAL
-  const toggleSelecao = (uid: string) => {
-    setSelecionados(prev => prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]);
-  };
+  const adicionarAFila = (uid: string) => setSelecionados(prev => [...prev, uid]);
+  const removerDaFila = (uid: string) => setSelecionados(prev => prev.filter(id => id !== uid));
 
   const adicionarTodosFiltrados = () => {
     const uidsFiltrados = crachasFiltrados.map(c => c.uid);
@@ -120,26 +132,33 @@ export default function CrachasPage() {
             </p>
           </div>
           <button onClick={() => window.print()} className="flex items-center gap-2 px-8 py-4 bg-black text-white rounded-xl font-black hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl w-full md:w-auto justify-center">
-            <Printer size={20} /> IMPRIMIR CRACHÁS
+            <Printer size={20} /> {selecionados.length > 0 ? `IMPRIMIR OS ${selecionados.length} DA FILA` : 'IMPRIMIR TODOS'}
           </button>
         </div>
 
-        {/* ÁREA 1: FILTROS GERAIS */}
-        <div className="flex flex-col md:flex-row gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
-          <div className="flex-1">
+        {/* ÁREA 1: FILTROS E ORDENAÇÃO */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 mb-1.5"><ArrowDownAZ size={14}/> Ordenação</label>
+            <select value={ordenacao} onChange={e => setOrdenacao(e.target.value as any)} className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-black text-blue-900 focus:ring-2 focus:ring-blue-500 outline-none">
+              <option value="igreja">Por Igreja (VIP)</option>
+              <option value="alfabetica">Geral (A a Z)</option>
+            </select>
+          </div>
+          <div>
             <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 mb-1.5"><Filter size={14}/> Filtrar Igreja</label>
             <select value={filtroIgreja} onChange={e => setFiltroIgreja(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-blue-500 outline-none">
               <option value="">Todas as Igrejas</option>
               {igrejasDisponiveis.map(i => <option key={i} value={i}>{i}</option>)}
             </select>
           </div>
-          <div className="flex-1">
+          <div>
             <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 mb-1.5"><Search size={14}/> Buscar Nome</label>
             <input type="text" placeholder="Pesquisar pessoa..." value={filtroNome} onChange={e => setFiltroNome(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-medium focus:ring-2 focus:ring-blue-500 outline-none"/>
           </div>
-          <div className="flex-none flex items-end">
+          <div className="flex items-end">
             <button onClick={() => setSomenteLoteExtra(!somenteLoteExtra)} className={`w-full p-2.5 rounded-lg font-bold border transition-all flex items-center justify-center gap-2 ${somenteLoteExtra ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-700 border-purple-200 hover:bg-purple-50'}`}>
-              <Sparkles size={16} strokeWidth={3}/> {somenteLoteExtra ? 'Filtrando Lote Extra' : 'Isolar Lote Extra'}
+              <Sparkles size={16} strokeWidth={3}/> {somenteLoteExtra ? 'Lote Extra (Ativo)' : 'Isolar Lote Extra'}
             </button>
           </div>
         </div>
@@ -148,21 +167,27 @@ export default function CrachasPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
           {/* Lado Esquerdo: Resultados para Adicionar */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden flex flex-col h-72">
+          <div className="border border-gray-200 rounded-xl overflow-hidden flex flex-col h-80">
             <div className="bg-gray-100 p-3 border-b border-gray-200 flex justify-between items-center">
               <span className="font-bold text-sm text-gray-700 flex items-center gap-2"><Search size={16}/> Resultados ({crachasFiltrados.length})</span>
-              <button onClick={adicionarTodosFiltrados} className="text-xs font-bold bg-white border border-gray-300 px-3 py-1 rounded shadow-sm hover:bg-gray-50 text-blue-600">Adicionar Todos</button>
+              <button onClick={adicionarTodosFiltrados} className="text-xs font-bold bg-white border border-gray-300 px-3 py-1.5 rounded shadow-sm hover:bg-gray-50 text-blue-600">Adicionar Todos à Fila</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 bg-white space-y-1">
+            <div className="flex-1 overflow-y-auto p-2 bg-white space-y-1.5">
               {crachasFiltrados.map(c => {
                 const isSelected = selecionados.includes(c.uid);
                 return (
-                  <div key={c.uid} onClick={() => toggleSelecao(c.uid)} className={`p-2.5 border rounded-lg cursor-pointer flex justify-between items-center transition-all ${isSelected ? 'bg-green-50 border-green-200' : 'bg-white border-gray-100 hover:border-blue-300 hover:bg-blue-50'}`}>
+                  <div key={c.uid} className={`p-2.5 border rounded-lg flex justify-between items-center transition-all ${isSelected ? 'bg-gray-50 border-gray-200 opacity-50' : 'bg-white border-gray-200 hover:border-blue-300'}`}>
                     <div>
-                      <p className={`font-bold text-sm ${isSelected ? 'text-green-800' : 'text-gray-900'}`}>{c.nome}</p>
+                      <p className={`font-bold text-sm ${isSelected ? 'text-gray-500 line-through' : 'text-gray-900'}`}>{c.nome}</p>
                       <p className="text-xs font-medium text-gray-500">{c.igreja} {c.isExtra && <span className="text-purple-600 font-bold ml-1">• Lote Extra</span>}</p>
                     </div>
-                    {isSelected ? <CheckCircle2 className="text-green-500" size={20}/> : <Plus className="text-gray-400" size={20}/>}
+                    {!isSelected ? (
+                      <button onClick={() => adicionarAFila(c.uid)} className="px-3 py-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-md font-bold text-xs flex items-center gap-1">
+                        <Plus size={14}/> Add
+                      </button>
+                    ) : (
+                      <span className="text-xs font-bold text-gray-400 px-2">Na fila</span>
+                    )}
                   </div>
                 );
               })}
@@ -171,26 +196,28 @@ export default function CrachasPage() {
           </div>
 
           {/* Lado Direito: Fila de Impressão */}
-          <div className="border-2 border-blue-200 rounded-xl overflow-hidden flex flex-col h-72 bg-blue-50">
+          <div className="border-2 border-blue-200 rounded-xl overflow-hidden flex flex-col h-80 bg-blue-50">
             <div className="bg-blue-100 p-3 border-b border-blue-200 flex justify-between items-center">
               <span className="font-bold text-sm text-blue-900 flex items-center gap-2"><ListChecks size={16}/> Fila de Impressão Específica</span>
-              {selecionados.length > 0 && <button onClick={() => setSelecionados([])} className="text-xs font-bold bg-white border border-red-200 px-3 py-1 rounded shadow-sm hover:bg-red-50 text-red-600">Limpar Fila</button>}
+              {selecionados.length > 0 && <button onClick={() => setSelecionados([])} className="text-xs font-bold bg-white border border-red-200 px-3 py-1.5 rounded shadow-sm hover:bg-red-50 text-red-600">Limpar Fila</button>}
             </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
               {selecionados.length === 0 ? (
                 <div className="text-center mt-12 px-4">
                   <Printer className="mx-auto mb-2 text-blue-300" size={32}/>
                   <p className="text-sm font-bold text-blue-800">A fila específica está vazia.</p>
-                  <p className="text-xs text-blue-600 mt-1 leading-relaxed">Neste modo, o sistema irá imprimir automaticamente todos os <strong>{crachasFiltrados.length}</strong> crachás dos Resultados da Busca ao lado.</p>
+                  <p className="text-xs text-blue-600 mt-1 leading-relaxed">Se você clicar em Imprimir agora, o sistema vai imprimir automaticamente todos os <strong>{crachasFiltrados.length}</strong> crachás dos Resultados ao lado.</p>
                 </div>
               ) : (
-                crachas.filter(c => selecionados.includes(c.uid)).map(c => (
-                  <div key={c.uid} onClick={() => toggleSelecao(c.uid)} className="p-2.5 bg-white border border-blue-200 rounded-lg shadow-sm flex justify-between items-center cursor-pointer hover:bg-red-50 group">
+                crachasParaImprimir.map(c => (
+                  <div key={c.uid} className="p-2.5 bg-white border border-blue-200 rounded-lg shadow-sm flex justify-between items-center">
                     <div>
                       <p className="font-bold text-sm text-gray-900">{c.nome}</p>
                       <p className="text-xs font-medium text-gray-500">{c.igreja}</p>
                     </div>
-                    <Trash2 className="text-gray-300 group-hover:text-red-500 transition-colors" size={18}/>
+                    <button onClick={() => removerDaFila(c.uid)} className="px-2 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-md font-bold text-xs flex items-center gap-1">
+                      <X size={14}/> Remover
+                    </button>
                   </div>
                 ))
               )}
