@@ -200,9 +200,25 @@ export default function CheckinPage() {
           display: none !important;
         }
 
+        /* ESTILIZA O SELETOR DE CÂMERA (Dropdown) */
+        #html5-qrcode-select-camera {
+          width: 100% !important;
+          padding: 12px 16px !important;
+          margin-bottom: 12px !important;
+          border: 2px solid #111827 !important; /* border-gray-900 */
+          border-radius: 12px !important;
+          font-weight: 800 !important;
+          font-size: 14px !important;
+          color: #111827 !important;
+          background-color: #f3f4f6 !important; /* bg-gray-100 */
+          cursor: pointer !important;
+          outline: none !important;
+          appearance: auto !important;
+        }
+
         /* Estiliza o botão principal de pedir permissão */
         #html5-qrcode-button-camera-permission {
-          background-color: #141adfff !important; /* Azul escuro */
+          background-color: #2563eb !important; /* Azul Tailwind */
           color: white !important;
           font-weight: 900 !important;
           padding: 14px 24px !important;
@@ -222,11 +238,12 @@ export default function CheckinPage() {
           background-color: #111827 !important; /* Preto */
           color: white !important;
           font-weight: 800 !important;
-          padding: 10px 20px !important;
-          border-radius: 8px !important;
+          padding: 12px 20px !important;
+          border-radius: 10px !important;
           border: none !important;
           margin: 5px !important;
           cursor: pointer !important;
+          width: 100% !important;
         }
 
         /* Melhora o visual da caixa do vídeo */
