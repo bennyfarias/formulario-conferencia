@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 import { 
-  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus, Printer, ScanLine, ClipboardCheck, Sparkles
+  Search, Eye, CheckCircle, Clock, X, Loader2, Users, DollarSign, Download, LogOut, Mail, Edit, Save, Trash2, Plus, Printer, ScanLine, ClipboardCheck, Sparkles,
+  Trophy
 } from 'lucide-react';
 
 const CAPACIDADE_LOTE_1 = 302;
@@ -243,8 +244,12 @@ export default function AdminDashboard() {
           <Link href="/admin/crachas" target="_blank" className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-xl text-sm font-black hover:bg-gray-800 transition-colors shadow-sm">
             <Printer size={18} strokeWidth={3} /> Gerar Crachás (QR Code)
           </Link>
+          
           <Link href="/admin/checkin" target="_blank" className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-black hover:bg-blue-700 transition-colors shadow-sm">
             <ScanLine size={18} strokeWidth={3} /> Abrir Câmera de Check-in
+          </Link>
+          <Link href="/admin/sorteio" target="_blank" className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-xl text-sm font-black hover:bg-gray-800 transition-colors shadow-sm">
+            <Trophy size={18} strokeWidth={3} /> Sorteio Oficial
           </Link>
           <div className="w-px h-10 bg-gray-200 mx-2 hidden md:block"></div>
           <button type="button" onClick={exportarXLSX} className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-green-600 rounded-xl text-sm font-black text-green-700 hover:bg-green-50 transition-colors shadow-sm">
@@ -254,10 +259,7 @@ export default function AdminDashboard() {
             {baixandoPresencas ? <Loader2 size={18} className="animate-spin" /> : <ClipboardCheck size={18} strokeWidth={3} />} Relatório de Presença
           </button>
           
-          {/* BOTÃO DO LOTE EXTRA */}
-          <button type="button" onClick={() => setFiltroLoteExtra(!filtroLoteExtra)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black transition-colors shadow-sm ${filtroLoteExtra ? 'bg-purple-600 text-white' : 'bg-white border-2 border-purple-600 text-purple-700 hover:bg-purple-50'}`}>
-            <Sparkles size={18} strokeWidth={3} /> {filtroLoteExtra ? 'Mostrando Lote Extra' : 'Ver Lote Extra (20)'}
-          </button>
+          
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">

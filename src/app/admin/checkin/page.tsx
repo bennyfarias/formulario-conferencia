@@ -162,17 +162,7 @@ export default function CheckinPage() {
           )}
         </div>
         
-        {/* Aviso de Distância para a equipa */}
-        <div className="text-center bg-blue-50 p-3 rounded-xl border border-blue-200 mb-6">
-          <p className="text-blue-800 text-xs font-black uppercase tracking-wider mb-1">
-            📱 MANTENHA O CRACHÁ A 15CM DE DISTÂNCIA
-          </p>
-          <p className="text-blue-600 text-[10px] font-bold">
-            A alta resolução lerá automaticamente sem precisar de focar de perto.
-            <br />
-            <span className="text-red-600 mt-1 block">Para trocar a lente, clique em STOP primeiro!</span>
-          </p>
-        </div>
+      
 
         {/* Painel de Mensagens de Estado */}
         <div className={`rounded-xl p-6 text-center transition-all min-h-[140px] flex flex-col items-center justify-center
