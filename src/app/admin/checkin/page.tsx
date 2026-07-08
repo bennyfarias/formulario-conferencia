@@ -10,18 +10,31 @@ export default function CheckinPage() {
   const [mensagem, setMensagem] = useState('');
   const [nomePessoa, setNomePessoa] = useState('');
   
-  // REFERÊNCIAS MÁGICAS PARA TRAVAR A METRALHADORA DA CÂMERA
   const scannerRef = useRef<any>(null);
   const isProcessing = useRef(false);
 
   useEffect(() => {
     let html5QrcodeScanner: any = null;
 
-    import('html5-qrcode').then(({ Html5QrcodeScanner }) => {
+    // Importação dinâmica com acesso aos formatos suportados
+    import('html5-qrcode').then((html5Qrcode) => {
+      const { Html5QrcodeScanner, Html5QrcodeSupportedFormats } = html5Qrcode;
+
       html5QrcodeScanner = new Html5QrcodeScanner(
         "reader",
-        // Reduzimos o FPS de 10 para 5 para ser mais suave
-        { fps: 5, qrbox: { width: 250, height: 250 } },
+        { 
+          fps: 10, 
+          // O SEGREDO 1: Focar apenas em QR Codes poupa memória e acelera a leitura de imagens grandes
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+          // O SEGREDO 2: Sem 'qrbox', a câmara lê o ecrã inteiro.
+          
+          // O SEGREDO 3: Forçar alta resolução (Full HD/4K) para ler QR Codes minúsculos à distância
+          videoConstraints: {
+            facingMode: "environment",
+            width: { min: 1280, ideal: 1920, max: 3840 },
+            height: { min: 720, ideal: 1080, max: 2160 }
+          }
+        },
         false
       );
       
@@ -41,11 +54,9 @@ export default function CheckinPage() {
   }, []);
 
   const onScanSuccess = async (decodedText: string) => {
-    // 1. TRAVA IMEDIATA: Se já estiver processando, ignora todas as outras leituras
     if (isProcessing.current) return;
     isProcessing.current = true;
     
-    // 2. PAUSA A CÂMERA VISUALMENTE
     if (scannerRef.current) {
       try { scannerRef.current.pause(true); } catch(e) {}
     }
@@ -58,13 +69,12 @@ export default function CheckinPage() {
       return;
     }
 
-    const tipo = partes[0]; // 'titular' ou 'acompanhante'
+    const tipo = partes[0]; 
     const id = partes[1];
 
     try {
       let nomeEncontrado = '';
       
-      // Busca o nome do dono do Crachá
       if (tipo === 'titular') {
         const { data: inscricao, error } = await supabase.from('inscricoes').select('nome_titular, status_pagamento').eq('id', id).single();
         if (error || !inscricao) throw new Error("Inscrição não encontrada.");
@@ -79,7 +89,6 @@ export default function CheckinPage() {
 
       setNomePessoa(nomeEncontrado);
 
-      // LÓGICA DE DATAS BLINDADA: Garante que a pessoa pode fazer 1 check-in POR DIA civil
       const agora = new Date();
       const hojeInicio = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 0, 0, 0).toISOString();
       const hojeFim = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 23, 59, 59).toISOString();
@@ -88,8 +97,8 @@ export default function CheckinPage() {
         .from('presencas')
         .select('id')
         .eq('participante_id', id)
-        .gte('data_checkin', hojeInicio) // A partir de meia-noite de hoje
-        .lte('data_checkin', hojeFim)    // Até 23:59 de hoje
+        .gte('data_checkin', hojeInicio)
+        .lte('data_checkin', hojeFim)
         .limit(1);
 
       if (presencaExiste && presencaExiste.length > 0) {
@@ -97,7 +106,6 @@ export default function CheckinPage() {
         return;
       }
 
-      // 3. Salvar a presença UMA ÚNICA VEZ
       const { error: erroInsert } = await supabase.from('presencas').insert([{
         tipo_participante: tipo,
         participante_id: id
@@ -105,16 +113,14 @@ export default function CheckinPage() {
 
       if (erroInsert) throw erroInsert;
 
-      // SUCESSO! Fica verde na tela
       setMensagem("Entrada Liberada!");
       setScanningStatus('success');
 
-      // Limpa a tela e volta a câmera ao normal após 2.5 segundos
       setTimeout(() => {
         setScanningStatus('idle');
-        isProcessing.current = false; // Destrava
+        isProcessing.current = false;
         if (scannerRef.current) {
-          try { scannerRef.current.resume(); } catch(e) {} // Liga a câmera
+          try { scannerRef.current.resume(); } catch(e) {}
         }
       }, 2500);
 
@@ -123,18 +129,16 @@ export default function CheckinPage() {
     }
   };
 
-  const onScanFailure = (error: any) => {
-    // Silencia os avisos da câmera tentando focar
-  };
+  const onScanFailure = (error: any) => {};
 
   const exibirErro = (msg: string) => {
     setMensagem(msg);
     setScanningStatus('error');
     setTimeout(() => {
       setScanningStatus('idle');
-      isProcessing.current = false; // Destrava
+      isProcessing.current = false;
       if (scannerRef.current) {
-        try { scannerRef.current.resume(); } catch(e) {} // Liga a câmera
+        try { scannerRef.current.resume(); } catch(e) {}
       }
     }, 3000);
   };
@@ -146,24 +150,31 @@ export default function CheckinPage() {
         <div className="text-center mb-6">
           <ScanLine className="w-12 h-12 text-black mx-auto mb-2" />
           <h1 className="text-2xl font-black text-black">Portaria Rápida</h1>
-          <p className="text-gray-500 text-sm mt-1">Para começar, libere a câmera do celular.</p>
+          <p className="text-gray-500 text-sm mt-1">Para começar, libere a câmara do telemóvel.</p>
         </div>
 
-        {/* Leitor de Câmera com Fundo Branco */}
+        {/* Leitor de Câmara com Fundo Branco */}
         <div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-4 mb-2 relative">
           {scannerLoadError ? (
-            <div className="p-8 text-center text-red-500 font-bold">Erro ao acessar a câmera. Verifique as permissões do navegador.</div>
+            <div className="p-8 text-center text-red-500 font-bold">Erro ao aceder à câmara. Verifique as permissões do navegador.</div>
           ) : (
             <div id="reader" className="w-full border-none"></div>
           )}
         </div>
         
-        {/* Aviso Instrucional de como trocar a câmera */}
-        <p className="text-center text-red-600 text-[11px] font-black uppercase tracking-wider mb-6">
-          ⚠️ Para trocar de câmera, clique em <span className="bg-black text-white px-1.5 py-0.5 rounded">STOP</span> primeiro!
-        </p>
+        {/* Aviso de Distância para a equipa */}
+        <div className="text-center bg-blue-50 p-3 rounded-xl border border-blue-200 mb-6">
+          <p className="text-blue-800 text-xs font-black uppercase tracking-wider mb-1">
+            📱 MANTENHA O CRACHÁ A 15CM DE DISTÂNCIA
+          </p>
+          <p className="text-blue-600 text-[10px] font-bold">
+            A alta resolução lerá automaticamente sem precisar de focar de perto.
+            <br />
+            <span className="text-red-600 mt-1 block">Para trocar a lente, clique em STOP primeiro!</span>
+          </p>
+        </div>
 
-        {/* Painel de Mensagens de Status */}
+        {/* Painel de Mensagens de Estado */}
         <div className={`rounded-xl p-6 text-center transition-all min-h-[140px] flex flex-col items-center justify-center
           ${scanningStatus === 'idle' ? 'bg-gray-100' : ''}
           ${scanningStatus === 'loading' ? 'bg-blue-100' : ''}
@@ -172,7 +183,7 @@ export default function CheckinPage() {
         `}>
           
           {scanningStatus === 'idle' && (
-            <p className="text-gray-500 font-bold">Aguardando QR Code...</p>
+            <p className="text-gray-500 font-bold">A aguardar QR Code...</p>
           )}
 
           {scanningStatus === 'loading' && (
@@ -198,78 +209,31 @@ export default function CheckinPage() {
         </div>
       </div>
 
-      {/* ESTILOS FORÇADOS PARA OS BOTÕES NATIVOS DA BIBLIOTECA */}
       <style dangerouslySetInnerHTML={{__html: `
-        /* Oculta o link inútil de escanear imagem */
-        #html5-qrcode-anchor-scan-type-change {
-          display: none !important;
-        }
-
-        /* ESTILIZA O SELETOR DE CÂMERA (Dropdown) */
+        #html5-qrcode-anchor-scan-type-change { display: none !important; }
         #html5-qrcode-select-camera {
-          width: 100% !important;
-          padding: 12px 16px !important;
-          margin-bottom: 12px !important;
-          border: 2px solid #111827 !important;
-          border-radius: 12px !important;
-          font-weight: 800 !important;
-          font-size: 14px !important;
-          color: #111827 !important;
-          background-color: #f3f4f6 !important;
-          cursor: pointer !important;
-          outline: none !important;
+          width: 100% !important; padding: 12px 16px !important; margin-bottom: 12px !important;
+          border: 2px solid #111827 !important; border-radius: 12px !important; font-weight: 800 !important;
+          font-size: 14px !important; color: #111827 !important; background-color: #f3f4f6 !important;
+          cursor: pointer !important; outline: none !important;
         }
-
-        /* O SEGREDO: Fica cinza quando não pode clicar (Enquanto a câmera grava) */
         #html5-qrcode-select-camera:disabled {
-          background-color: #e5e7eb !important;
-          color: #9ca3af !important;
-          border-color: #d1d5db !important;
-          cursor: not-allowed !important;
-          opacity: 0.7 !important;
+          background-color: #e5e7eb !important; color: #9ca3af !important; border-color: #d1d5db !important;
+          cursor: not-allowed !important; opacity: 0.7 !important;
         }
-
-        /* Cor do texto de dentro das opções */
-        #html5-qrcode-select-camera option {
-          color: #000 !important;
-          background-color: #fff !important;
-          font-weight: bold !important;
-        }
-
-        /* Estiliza o botão principal de pedir permissão */
+        #html5-qrcode-select-camera option { color: #000 !important; background-color: #fff !important; font-weight: bold !important; }
         #html5-qrcode-button-camera-permission {
-          background-color: #2563eb !important; /* Azul Tailwind */
-          color: white !important;
-          font-weight: 900 !important;
-          padding: 14px 24px !important;
-          border-radius: 12px !important;
-          border: none !important;
-          font-size: 16px !important;
-          cursor: pointer !important;
-          width: 100% !important;
-          margin-top: 10px !important;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+          background-color: #2563eb !important; color: white !important; font-weight: 900 !important;
+          padding: 14px 24px !important; border-radius: 12px !important; border: none !important;
+          font-size: 16px !important; cursor: pointer !important; width: 100% !important; margin-top: 10px !important;
           text-transform: uppercase !important;
         }
-
-        /* Estiliza os botões secundários de start/stop da câmera */
-        #html5-qrcode-button-camera-start,
-        #html5-qrcode-button-camera-stop {
-          background-color: #111827 !important; /* Preto */
-          color: white !important;
-          font-weight: 800 !important;
-          padding: 12px 20px !important;
-          border-radius: 10px !important;
-          border: none !important;
-          margin: 5px !important;
-          cursor: pointer !important;
-          width: 100% !important;
+        #html5-qrcode-button-camera-start, #html5-qrcode-button-camera-stop {
+          background-color: #111827 !important; color: white !important; font-weight: 800 !important;
+          padding: 12px 20px !important; border-radius: 10px !important; border: none !important;
+          margin: 5px !important; cursor: pointer !important; width: 100% !important;
         }
-
-        /* Melhora o visual da caixa do vídeo */
-        #reader video {
-          border-radius: 12px !important;
-        }
+        #reader video { border-radius: 12px !important; width: 100% !important; object-fit: cover !important; }
       `}} />
     </div>
   );
