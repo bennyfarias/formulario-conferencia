@@ -16,23 +16,21 @@ export default function CheckinPage() {
   useEffect(() => {
     let html5QrcodeScanner: any = null;
 
-    // Importação dinâmica com acesso aos formatos suportados
     import('html5-qrcode').then((html5Qrcode) => {
       const { Html5QrcodeScanner, Html5QrcodeSupportedFormats } = html5Qrcode;
 
+      // CONFIGURAÇÃO OTIMIZADA PARA VELOCIDADE
       html5QrcodeScanner = new Html5QrcodeScanner(
         "reader",
         { 
-          fps: 10, 
-          // O SEGREDO 1: Focar apenas em QR Codes poupa memória e acelera a leitura de imagens grandes
+          fps: 15, // Aumentado para o scanner "ver" mais frames por segundo
+          qrbox: { width: 250, height: 250 }, // Mantém o foco centralizado
           formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-          // O SEGREDO 2: Sem 'qrbox', a câmara lê o ecrã inteiro.
-          
-          // O SEGREDO 3: Forçar alta resolução (Full HD/4K) para ler QR Codes minúsculos à distância
+          // RESOLUÇÃO EQUILIBRADA: Não é 4K (pesado), é a resolução ideal para leitura rápida
           videoConstraints: {
             facingMode: "environment",
-            width: { min: 1280, ideal: 1920, max: 3840 },
-            height: { min: 720, ideal: 1080, max: 2160 }
+            width: { ideal: 640 },
+            height: { ideal: 480 }
           }
         },
         false
@@ -57,15 +55,12 @@ export default function CheckinPage() {
     if (isProcessing.current) return;
     isProcessing.current = true;
     
-    if (scannerRef.current) {
-      try { scannerRef.current.pause(true); } catch(e) {}
-    }
-
+    // Feedback visual imediato
     setScanningStatus('loading');
     
     const partes = decodedText.split('|');
     if (partes.length !== 2) {
-      exibirErro("QR Code Inválido ou não pertence a este evento.");
+      exibirErro("QR Code Inválido.");
       return;
     }
 
@@ -102,7 +97,7 @@ export default function CheckinPage() {
         .limit(1);
 
       if (presencaExiste && presencaExiste.length > 0) {
-        exibirErro("ESTE CRACHÁ JÁ FEZ CHECK-IN HOJE!");
+        exibirErro("CRACHÁ JÁ REGISTRADO HOJE!");
         return;
       }
 
@@ -113,16 +108,13 @@ export default function CheckinPage() {
 
       if (erroInsert) throw erroInsert;
 
-      setMensagem("Entrada Liberada!");
+      setMensagem("ENTRADA LIBERADA!");
       setScanningStatus('success');
 
       setTimeout(() => {
         setScanningStatus('idle');
         isProcessing.current = false;
-        if (scannerRef.current) {
-          try { scannerRef.current.resume(); } catch(e) {}
-        }
-      }, 2500);
+      }, 2000);
 
     } catch (error: any) {
       exibirErro(error.message);
@@ -137,93 +129,44 @@ export default function CheckinPage() {
     setTimeout(() => {
       setScanningStatus('idle');
       isProcessing.current = false;
-      if (scannerRef.current) {
-        try { scannerRef.current.resume(); } catch(e) {}
-      }
-    }, 3000);
+    }, 2000);
   };
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-lg bg-white rounded-[2rem] p-6 shadow-2xl">
-        
         <div className="text-center mb-6">
           <ScanLine className="w-12 h-12 text-black mx-auto mb-2" />
           <h1 className="text-2xl font-black text-black">Portaria Rápida</h1>
-          <p className="text-gray-500 text-sm mt-1">Para começar, libere a câmara do telemóvel.</p>
         </div>
 
-        {/* Leitor de Câmara com Fundo Branco */}
-        <div className="rounded-2xl overflow-hidden bg-white border-2 border-gray-200 p-4 mb-2 relative">
+        <div className="rounded-2xl overflow-hidden bg-black border-2 border-gray-200 p-1 mb-4 relative">
           {scannerLoadError ? (
-            <div className="p-8 text-center text-red-500 font-bold">Erro ao aceder à câmara. Verifique as permissões do navegador.</div>
+            <div className="p-8 text-center text-red-500 font-bold">Erro na câmara. Verifique permissões.</div>
           ) : (
-            <div id="reader" className="w-full border-none"></div>
+            <div id="reader" className="w-full"></div>
           )}
         </div>
         
-      
-
-        {/* Painel de Mensagens de Estado */}
-        <div className={`rounded-xl p-6 text-center transition-all min-h-[140px] flex flex-col items-center justify-center
+        <div className={`rounded-xl p-4 text-center transition-all min-h-[100px] flex flex-col items-center justify-center
           ${scanningStatus === 'idle' ? 'bg-gray-100' : ''}
           ${scanningStatus === 'loading' ? 'bg-blue-100' : ''}
-          ${scanningStatus === 'success' ? 'bg-green-100 border-2 border-green-500' : ''}
-          ${scanningStatus === 'error' ? 'bg-red-100 border-2 border-red-500' : ''}
+          ${scanningStatus === 'success' ? 'bg-green-100' : ''}
+          ${scanningStatus === 'error' ? 'bg-red-100' : ''}
         `}>
-          
-          {scanningStatus === 'idle' && (
-            <p className="text-gray-500 font-bold">A aguardar QR Code...</p>
-          )}
-
-          {scanningStatus === 'loading' && (
-            <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-          )}
-
-          {scanningStatus === 'success' && (
-            <>
-              <CheckCircle2 className="w-12 h-12 text-green-600 mb-2" />
-              <p className="text-green-800 font-black text-xl">{mensagem}</p>
-              <p className="text-green-700 font-bold text-sm mt-1">{nomePessoa}</p>
-            </>
-          )}
-
-          {scanningStatus === 'error' && (
-            <>
-              <AlertTriangle className="w-12 h-12 text-red-600 mb-2" />
-              <p className="text-red-800 font-black text-lg leading-tight">{mensagem}</p>
-              {nomePessoa && <p className="text-red-700 font-bold text-sm mt-2">{nomePessoa}</p>}
-            </>
-          )}
-
+          {scanningStatus === 'idle' && <p className="text-gray-500 font-black">APONTE PARA O QR CODE</p>}
+          {scanningStatus === 'loading' && <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />}
+          {scanningStatus === 'success' && <><CheckCircle2 className="w-10 h-10 text-green-600 mb-1" /><p className="text-green-800 font-black text-lg">{mensagem}</p><p className="text-green-700 font-bold text-sm">{nomePessoa}</p></>}
+          {scanningStatus === 'error' && <><AlertTriangle className="w-10 h-10 text-red-600 mb-1" /><p className="text-red-800 font-black text-md">{mensagem}</p></>}
         </div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
         #html5-qrcode-anchor-scan-type-change { display: none !important; }
-        #html5-qrcode-select-camera {
-          width: 100% !important; padding: 12px 16px !important; margin-bottom: 12px !important;
-          border: 2px solid #111827 !important; border-radius: 12px !important; font-weight: 800 !important;
-          font-size: 14px !important; color: #111827 !important; background-color: #f3f4f6 !important;
-          cursor: pointer !important; outline: none !important;
-        }
-        #html5-qrcode-select-camera:disabled {
-          background-color: #e5e7eb !important; color: #9ca3af !important; border-color: #d1d5db !important;
-          cursor: not-allowed !important; opacity: 0.7 !important;
-        }
-        #html5-qrcode-select-camera option { color: #000 !important; background-color: #fff !important; font-weight: bold !important; }
-        #html5-qrcode-button-camera-permission {
-          background-color: #2563eb !important; color: white !important; font-weight: 900 !important;
-          padding: 14px 24px !important; border-radius: 12px !important; border: none !important;
-          font-size: 16px !important; cursor: pointer !important; width: 100% !important; margin-top: 10px !important;
-          text-transform: uppercase !important;
-        }
-        #html5-qrcode-button-camera-start, #html5-qrcode-button-camera-stop {
-          background-color: #111827 !important; color: white !important; font-weight: 800 !important;
-          padding: 12px 20px !important; border-radius: 10px !important; border: none !important;
-          margin: 5px !important; cursor: pointer !important; width: 100% !important;
-        }
-        #reader video { border-radius: 12px !important; width: 100% !important; object-fit: cover !important; }
+        #html5-qrcode-select-camera { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #ccc; font-weight: bold; }
+        #html5-qrcode-button-camera-permission { background-color: #000; color: #fff; padding: 12px; border-radius: 8px; font-weight: bold; width: 100%; margin-bottom: 10px; }
+        #html5-qrcode-button-camera-start, #html5-qrcode-button-camera-stop { background-color: #333; color: #fff; padding: 10px; border-radius: 8px; font-weight: bold; width: 48%; }
+        #reader video { width: 100%; height: 300px; object-fit: cover; }
       `}} />
     </div>
   );
